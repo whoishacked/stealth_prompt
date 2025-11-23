@@ -8,7 +8,7 @@ from pathlib import Path
 
 # Try to import python-dotenv, fallback to manual .env loading
 try:
-    from dotenv import load_dotenv
+    from dotenv import load_dotenv  # type: ignore
     HAS_DOTENV = True
 except ImportError:
     HAS_DOTENV = False

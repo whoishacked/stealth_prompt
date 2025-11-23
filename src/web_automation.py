@@ -221,73 +221,101 @@ class WebAutomation:
             print(f"[ERROR] Submit button not found using {submit_config.get('strategy')}: {submit_value}")
             return None
     
-    def _safe_click(self, element, max_attempts: int = 3) -> bool:
+    def _safe_click(self, element, max_attempts: int = 3, timeout: float = 10.0) -> bool:
         """
         Safely click an element with multiple fallback strategies.
         
         Args:
             element: WebElement to click
             max_attempts: Maximum number of click attempts
+            timeout: Maximum total time to spend on clicking (seconds)
         
         Returns:
             True if click succeeded, False otherwise
         """
+        import time as time_module
+        start_time = time_module.time()
+        
         for attempt in range(max_attempts):
+            # Check if we've exceeded the timeout
+            elapsed = time_module.time() - start_time
+            if elapsed >= timeout:
+                print(f"[ERROR] Click timeout exceeded ({timeout}s). Aborting click attempts.")
+                return False
+            
             try:
-                # Wait a bit for any overlays to disappear
-                time.sleep(0.5)
+                # Wait a bit for any overlays to disappear (shorter wait)
+                time.sleep(0.2)
                 
                 # Scroll element into view (center of viewport)
                 self.driver.execute_script(
                     "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
                     element
                 )
-                time.sleep(0.5)
+                time.sleep(0.2)
                 
                 # Try regular click first
                 element.click()
-                print(f"[CLICK] Successfully clicked element (attempt {attempt + 1})")
+                print(f"[CLICK] Successfully clicked element (attempt {attempt + 1}, {elapsed:.1f}s)")
                 return True
                 
             except ElementClickInterceptedException as e:
-                print(f"[WARNING] Click intercepted (attempt {attempt + 1}/{max_attempts})")
+                elapsed = time_module.time() - start_time
+                remaining_time = timeout - elapsed
+                if remaining_time <= 0:
+                    print(f"[ERROR] Click timeout exceeded ({timeout}s). Aborting.")
+                    return False
+                
+                print(f"[WARNING] Click intercepted (attempt {attempt + 1}/{max_attempts}, {elapsed:.1f}s elapsed)")
                 
                 if attempt < max_attempts - 1:
-                    # Try to dismiss any overlays or modals
+                    # Try to dismiss any overlays or modals (quick attempt)
                     self._dismiss_overlays()
                     
-                    # Try JavaScript click as fallback
+                    # Try JavaScript click as fallback immediately
                     try:
                         self.driver.execute_script("arguments[0].click();", element)
-                        print(f"[CLICK] Successfully clicked using JavaScript (attempt {attempt + 1})")
+                        elapsed = time_module.time() - start_time
+                        print(f"[CLICK] Successfully clicked using JavaScript (attempt {attempt + 1}, {elapsed:.1f}s)")
                         return True
                     except Exception as js_error:
                         print(f"[WARNING] JavaScript click also failed: {str(js_error)}")
-                        time.sleep(1)  # Wait before next attempt
+                        # Shorter wait before next attempt
+                        time.sleep(0.5)
                 else:
                     # Last attempt - try JavaScript click
                     try:
                         self.driver.execute_script("arguments[0].click();", element)
-                        print(f"[CLICK] Successfully clicked using JavaScript (final attempt)")
+                        elapsed = time_module.time() - start_time
+                        print(f"[CLICK] Successfully clicked using JavaScript (final attempt, {elapsed:.1f}s)")
                         return True
                     except Exception as js_error:
-                        print(f"[ERROR] All click attempts failed. Last error: {str(js_error)}")
+                        elapsed = time_module.time() - start_time
+                        print(f"[ERROR] All click attempts failed after {elapsed:.1f}s. Last error: {str(js_error)}")
                         return False
                         
             except (ElementNotInteractableException, Exception) as e:
-                print(f"[WARNING] Click failed (attempt {attempt + 1}/{max_attempts}): {str(e)}")
+                elapsed = time_module.time() - start_time
+                remaining_time = timeout - elapsed
+                if remaining_time <= 0:
+                    print(f"[ERROR] Click timeout exceeded ({timeout}s). Aborting.")
+                    return False
+                
+                print(f"[WARNING] Click failed (attempt {attempt + 1}/{max_attempts}, {elapsed:.1f}s elapsed): {str(e)}")
                 
                 if attempt < max_attempts - 1:
-                    # Try JavaScript click
+                    # Try JavaScript click immediately
                     try:
                         self.driver.execute_script("arguments[0].click();", element)
-                        print(f"[CLICK] Successfully clicked using JavaScript (attempt {attempt + 1})")
+                        elapsed = time_module.time() - start_time
+                        print(f"[CLICK] Successfully clicked using JavaScript (attempt {attempt + 1}, {elapsed:.1f}s)")
                         return True
                     except Exception as js_error:
                         print(f"[WARNING] JavaScript click failed: {str(js_error)}")
-                        time.sleep(1)
+                        time.sleep(0.5)  # Shorter wait
                 else:
-                    print(f"[ERROR] All click attempts failed: {str(e)}")
+                    elapsed = time_module.time() - start_time
+                    print(f"[ERROR] All click attempts failed after {elapsed:.1f}s: {str(e)}")
                     return False
         
         return False
@@ -520,9 +548,11 @@ class WebAutomation:
             if submit_config:
                 submit_element = self._find_submit_button(submit_config, wait)
                 if submit_element:
+                    # Get click timeout from config (default 10 seconds)
+                    click_timeout = self.selenium_config.get('click_timeout', 10.0)
                     # Try to click the submit button with fallback methods
-                    if not self._safe_click(submit_element):
-                        raise ValueError("Could not click submit button after multiple attempts")
+                    if not self._safe_click(submit_element, timeout=click_timeout):
+                        raise ValueError(f"Could not click submit button after multiple attempts (timeout: {click_timeout}s)")
                 else:
                     raise ValueError("Could not find submit button")
             else:
