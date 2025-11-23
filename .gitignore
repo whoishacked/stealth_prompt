@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Results and logs
+results/
+*.log
+*.json
+!package.json
+!package-lock.json
+
+# Cache
+cache/
+*.cache
+
+# Prompt database
+successful_prompts.json
+
+# Configuration with sensitive data
+config.local.yaml
+*.key
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Selenium
+*.png
+*.jpg
+screenshots/
+
+# ChromeDriver
+chromedriver.exe
+chromedriver
+
+
+# Snyk Security Extension - AI Rules (auto-generated)
+.cursor\rules\snyk_rules.mdc
+
+# Env Variables
+.env
