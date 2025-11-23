@@ -294,7 +294,3 @@ To run security scans on the codebase:
 ## License
 
 This tool is provided for educational and authorized security testing purposes only.
-
-## TODO
-1) Wrong chain
-2) If we stopped manually - resuklts haven't saved
