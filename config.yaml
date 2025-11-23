@@ -26,6 +26,7 @@ web:
     headless: false
     implicit_wait: 10  # seconds
     page_load_timeout: 30  # seconds
+    click_timeout: 10.0  # Maximum time to spend on clicking a button (seconds)
     window_size: "1920,1080"
     
     # Connect to existing Chrome instance (for manual setup/auth)
