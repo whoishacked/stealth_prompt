@@ -1,4 +1,4 @@
-"""Configuration loader for the AI agent penetration testing tool."""
+"""Configuration loader for Stealth Prompt."""
 
 import yaml
 import os

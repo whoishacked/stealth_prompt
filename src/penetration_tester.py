@@ -11,7 +11,7 @@ from .prompt_db import PromptDB
 
 
 class PenetrationTester:
-    """Main class for orchestrating AI agent penetration testing."""
+    """Main class for orchestrating AI agent penetration testing with Stealth Prompt."""
     
     def __init__(self, config: Dict[str, Any]):
         """
@@ -309,7 +309,7 @@ class PenetrationTester:
         if output_format in ['txt', 'both']:
             txt_path = base_path.with_suffix('.txt')
             with open(txt_path, 'w', encoding='utf-8') as f:
-                f.write("AI Agent Penetration Testing Results\n")
+                f.write("Stealth Prompt - Penetration Testing Results\n")
                 f.write("=" * 60 + "\n\n")
                 
                 for i, result in enumerate(self.results, 1):
@@ -363,7 +363,7 @@ class PenetrationTester:
         avg_turns = total_turns / total_tests if total_tests > 0 else 0
         
         report = f"""
-AI Agent Penetration Testing Report
+Stealth Prompt - Penetration Testing Report
 {'=' * 60}
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 

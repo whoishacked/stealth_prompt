@@ -1,2 +1,2 @@
-# AI Agent Penetration Testing Tool
+# Stealth Prompt - AI Agent Penetration Testing Tool
 
