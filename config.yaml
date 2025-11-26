@@ -70,7 +70,7 @@ http:
     User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     Accept: "application/json"
     Content-Type: "application/json"
-  cookies: {session: "REMOVED"}  # Add cookies as key-value pairs if needed
+  cookies: {}  # Add cookies as key-value pairs if needed (use environment variables for sensitive data)
   timeout: 30  # seconds
 
 # Proxy Configuration
