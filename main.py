@@ -1,4 +1,4 @@
-"""Main entry point for AI Agent Penetration Testing Tool."""
+"""Main entry point for Stealth Prompt."""
 
 import argparse
 import sys
@@ -14,7 +14,7 @@ from src.penetration_tester import PenetrationTester
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="AI Agent Penetration Testing Tool",
+        description="Stealth Prompt - AI Agent Penetration Testing Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

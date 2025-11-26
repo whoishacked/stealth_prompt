@@ -1,6 +1,6 @@
-# AI Agent Penetration Testing Tool
+# Stealth Prompt
 
-A Python application for automating penetration testing of AI agents with web interfaces. This tool uses local Ollama models or OpenAI API to generate test payloads and analyze responses for security vulnerabilities.
+A Python application for automating penetration testing of AI agents with web interfaces. Stealth Prompt uses local Ollama models or OpenAI API to generate test payloads and analyze responses for security vulnerabilities.
 
 ## Features
 
