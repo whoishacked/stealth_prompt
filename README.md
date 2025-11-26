@@ -293,4 +293,6 @@ To run security scans on the codebase:
 
 ## License
 
-This tool is provided for educational and authorized security testing purposes only.
+This project is licensed under the MIT License - see the [LICENSE.txt](LICENSE.txt) file for details.
+
+**Important**: This tool is provided for educational and authorized security testing purposes only. Ensure you have proper authorization before testing any AI agent or system.
