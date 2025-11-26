@@ -2,6 +2,12 @@
 
 A Python application for automating penetration testing of AI agents with web interfaces. Stealth Prompt uses local Ollama models or OpenAI API to generate test payloads and analyze responses for security vulnerabilities.
 
+## Demo
+
+[![Stealth Prompt Demo](https://img.youtube.com/vi/uIPCG7z5k8g/0.jpg)](https://www.youtube.com/watch?v=uIPCG7z5k8g)
+
+[Watch the demo video on YouTube](https://www.youtube.com/watch?v=uIPCG7z5k8g)
+
 ## Features
 
 - **Automated Testing**: Automatically generates and sends penetration testing prompts to AI agents
