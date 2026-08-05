@@ -51,10 +51,14 @@ from .test_dock_configuration_e2e import (  # noqa: E402
 
 DEMO = Path(__file__).resolve().parents[2] / "examples" / "local-demo" / "server.py"
 
-pytestmark = pytest.mark.skipif(
-    not SystemEnvironment().chromium_present(),
-    reason="Playwright Chromium is not installed",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        not SystemEnvironment().chromium_present(),
+        reason="Playwright Chromium is not installed",
+    ),
+    # Which backend the dock selects, not which CLI this machine happens to have.
+    pytest.mark.usefixtures("cli_backends_present"),
+]
 
 
 def load_demo() -> Any:

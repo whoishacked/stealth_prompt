@@ -272,3 +272,31 @@ def scripted_input(answers: list[str]) -> Callable[[str], str]:
 def no_sleep(seconds: float) -> None:
     """Sleep replacement that keeps the characterization tests fast."""
     return None
+
+
+@pytest.fixture
+def cli_backends_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pretend the Claude and Codex CLIs are installed.
+
+    Tests that exercise provider selection, switching or readiness care about
+    the plumbing, not about what happens to be on this machine's PATH. Left
+    unpatched they pass on a developer box that has the CLIs and fail in CI
+    that does not, which is exactly backwards for a regression suite.
+
+    Opt in per module with ``pytest.mark.usefixtures`` rather than making this
+    autouse: some tests deliberately assert the not-installed behaviour.
+    """
+    from stealth_prompt.agents import registry
+
+    cli_kinds = {registry.ProviderKind.CLAUDE, registry.ProviderKind.CODEX}
+    monkeypatch.setattr(
+        registry,
+        "resolve_executable",
+        lambda kind: f"/usr/bin/{kind.value}" if kind in cli_kinds else None,
+    )
+    # Health reports "unavailable" for an executable that answers no version,
+    # and the dock refuses to start on that, so the fake has to cover the
+    # version probe too rather than only the lookup.
+    monkeypatch.setattr(registry, "_probe_version", lambda executable, *a: "0.0.0-test")
+    registry.clear_health_cache()
+    registry._version_cache.clear()

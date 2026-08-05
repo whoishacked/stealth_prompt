@@ -73,8 +73,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
       - name: Install
         run: pip install -e ".[dev,workbench]"
+      # The extension end-to-end tests load extension/dist unpacked. Without a
+      # build they fall into ensure_built(), which shells out to `npm run
+      # build` with no node_modules present and fails the whole suite.
+      - name: Build extension
+        working-directory: extension
+        run: |
+          npm ci
+          npm run build
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
       - name: End-to-end tests
