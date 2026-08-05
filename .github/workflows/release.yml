@@ -36,7 +36,7 @@ jobs:
         working-directory: extension/dist
         run: zip -r ../stealth-prompt-extension.zip .
       - name: Publish GitHub release artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
