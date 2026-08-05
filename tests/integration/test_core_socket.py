@@ -387,13 +387,13 @@ class TestAssistantFlowsOverTheWire:
                     await frame(socket, "proposal.request")
                     assert (await reply(socket))["type"] == "proposal.pending"
                     await frame(socket, "cancel")
-                    # Comfortably under the adapter's 5s chunk delay, so this
-                    # still proves cancel interrupted generation rather than
-                    # waiting it out, but wide enough to survive CI jitter.
-                    cancelled = await reply(socket, timeout=2.5)
+                    cancelled = await reply(socket, timeout=1)
                     try:
                         unexpected = await reply(socket, timeout=0.2)
-                    except TimeoutError:
+                    # Before 3.11 asyncio.TimeoutError is a separate class from
+                    # the builtin, so a bare `except TimeoutError` lets the
+                    # expected timeout escape on 3.10 only.
+                    except (TimeoutError, asyncio.TimeoutError):
                         unexpected = None
                     return {
                         "cancelled": cancelled,
