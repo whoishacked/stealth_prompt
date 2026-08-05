@@ -173,8 +173,19 @@ npm test
 npm run build
 ```
 
-CI validates Python 3.10–3.13, TypeScript, the packaged extension, the Python
-distribution and real-Chromium integration scenarios.
+CI validates Python 3.10–3.13, TypeScript, the packaged extension and the Python
+distribution on every push.
+
+The real-Chromium end-to-end suite is not part of that gate. It drives a live
+browser for about five minutes and is timing-sensitive on shared runners, so it
+runs on demand from the Actions tab and locally:
+
+```bash
+pytest tests/integration -q
+```
+
+Run it before cutting a release, and after any change to the extension, the
+Core protocol or the page executor.
 
 Contribution rules are in [CONTRIBUTING.md](CONTRIBUTING.md). Product priorities and
 the definition of done for the public beta are in the

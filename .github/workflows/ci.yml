@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The browser suite runs only from here. See the `browser` job below.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -68,6 +70,12 @@ jobs:
   browser:
     name: browser end-to-end
     runs-on: ubuntu-latest
+    # On demand only, from the Actions tab. The suite drives real Chromium for
+    # five minutes and leans on fixed sleeps that are reliable on a developer
+    # machine and not on a shared two-core runner, so on every push it reported
+    # a different arbitrary subset as broken. Run it locally before a release:
+    #   pytest tests/integration -q
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

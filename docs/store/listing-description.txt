@@ -1,0 +1,177 @@
+Stealth Prompt is a local-first AI security workbench for real browser interactions. It helps an authorized security tester investigate one exact AI chat or agent workflow inside the browser session they already use — the same authenticated account, the same page, the same conversation state — instead of reconstructing that environment in a separate automation profile.
+
+It is closer to a focused Repeater for AI-agent interfaces than to a broad automatic scanner. You choose the interaction. You approve the action. The evidence is written down.
+
+Use Stealth Prompt only on systems you own or are explicitly authorized to assess.
+
+
+WHAT PROBLEM IT SOLVES
+
+Testing an AI feature is awkward with conventional tooling. The interesting behaviour usually lives behind a login, inside a single-page application, in a chat widget that streams its answers, and in conversation state that only exists in your current session. Copying cookies into a headless browser changes the very context you are trying to examine, and a generic scanner has no idea which element on the page is the assistant's input, which one submits it, or where the reply appears.
+
+Stealth Prompt works the other way around. It attaches to the tab you already have open, asks you to identify the exact interaction once, and then operates strictly inside that boundary. Nothing is discovered by crawling. Nothing is guessed. The model never invents a target.
+
+
+THE WORKFLOW
+
+Observe, hypothesize, generate, review, send, capture, verify, report.
+
+The Side Panel is organised as four workspaces — Setup, Test, Review and Reports — with bounds and scenario import/export in a Settings drawer. Only one workspace renders at a time, and the panel moves between them as the assessment moves. Starting a run opens Test. A potential finding follows the review, stop or continue policy you selected. A terminal result opens the summary in Reports. Reloading the panel reopens the workspace the assessment is actually in, rather than dumping you back at the beginning.
+
+
+SELECTING THE INTERACTION
+
+Before anything runs, you bind three roles on the page: the input the assistant reads, the control that submits it, and the container where the reply appears.
+
+Element discovery is read-only. It inspects the page and proposes a candidate for each role with a confidence score and a plain-language reason — for example, "Matched textarea 'Message' inside a form. Editable chat semantics." Suggestions are never applied automatically. You review each role and accept it individually, or press Highlight to flash the element on the page, or pick it manually with a click-to-select overlay when the suggestion is wrong.
+
+Binding health is then tracked continuously: healthy, re-checking, needs review, or unsupported. The binding is revalidated after a reload, after same-origin navigation, after single-page-application document replacement, when the panel is reopened, and immediately before every single fill or submit. This last check is enforced at the service-worker chokepoint, so a stale or ambiguous locator fails closed instead of typing into whatever happens to match now. A failed check pauses an automatic run, revokes send authorization, names the role that broke, and keeps your reviewed binding so you can recover rather than start over.
+
+
+MODES: PROGRESSIVE AUTONOMY
+
+You decide how much the tool is allowed to do.
+
+Payload only — generates a test message and nothing else. It never touches the page. You copy the payload and use it yourself.
+
+Assist — generates on request and sends only when you approve, one send at a time.
+
+Guided — prepares the next proposal automatically as the conversation develops, but still requires your approval for every send.
+
+Auto — runs a bounded adaptive loop under limits you set, authorized by one explicit action. Authorization is never persisted across a panel reload.
+
+Auto is bounded on purpose. The default budget is 20 turns with unlimited time; turn budgets support 1 to 100 sends, or Unlimited. When a potential finding appears you choose the policy in advance: pause for human review, stop and save on the first signal, or continue while recording every turn. Unlimited turns require Pause or Stop, so a run cannot drift forever. Reaching a configured turn or duration limit saves the report automatically and opens Reports.
+
+
+WHAT IT TESTS FOR
+
+The objective catalogue covers direct prompt injection, indirect prompt injection, hidden and system instruction disclosure, sensitive-data disclosure, role confusion, goal hijacking, RAG manipulation, memory poisoning, tool misuse, excessive agency, approval bypass, and unsafe output handling.
+
+You pick one objective per assessment. Each one carries a description and the relevant OWASP LLM category, so a report reads meaningfully to someone who was not sitting next to you.
+
+You never type an attack string to get started. The first payload is generated from the objective you chose and the interaction you bound, and every payload remains fully editable before it is sent.
+
+
+EVIDENCE, NOT VIBES
+
+This is the part that separates Stealth Prompt from a chat window with a clever prompt in it.
+
+A model assessment can identify a potential issue. A confirmed finding requires a deterministic check or explicit operator verification. A model verdict on its own cannot create a confirmed finding — that rule is enforced in the local Core, not merely suggested in the interface.
+
+Deterministic checks are patterns you configure: a canary string, a known secret shape, a document identifier that should never appear in output. When one of those matches verbatim, the finding is confirmed because something objective matched, not because a language model felt confident. Everything else is honestly labelled potential, and the report shows the observed signals behind that judgement.
+
+A successful export produces structured session.json evidence, a self-contained report.html suitable for review or attachment to a ticket, and a scenario.json that replays the setup without carrying any evidence with it.
+
+
+REPORTS
+
+In Core mode the Reports workspace lists previously exported runs from disk and opens their results inside the extension, with separate HTML and JSON downloads. Each report shows the verdict, turn count, objective, provider, model, export time, and then every turn: the hypothesis, the exact payload sent, the target response, and the evaluation with its observed signals.
+
+In Direct API mode reports are kept in this Chrome profile through IndexedDB, up to 50 of them, and can also be downloaded as JSON. These local reports may contain target responses; they can be viewed or deleted individually from Reports, and uninstalling the extension removes them.
+
+
+TWO WAYS TO CONNECT A MODEL
+
+Local Core (recommended). A small Python service you run on your own machine. It owns provider credentials, command-line processes, deterministic scoring, and artifact storage. Supported through the Core: Claude CLI, Codex CLI, local Ollama, and the OpenAI API. The Core binds to loopback only and requires an origin-bound pairing token, which you enter once from a code the Core prints. Because credentials live in the Core, they never enter the browser process at all.
+
+Direct API. For when zero local setup matters more than credential isolation, the panel can talk straight to OpenAI or Anthropic. You enter a key, load the models, and start — no install, no pairing. The key is held only in the open Side Panel's JavaScript memory and passed to the extension service worker for the selected provider request. It is never written to Chrome storage, bindings, timelines or exports, and closing the panel clears it. The key still exists in the browser process, which is a real difference from Core mode, and the interface says so plainly. Use a restricted project key with a spend limit, or use Core mode if that exposure is unacceptable.
+
+Direct API mode contacts only the fixed api.openai.com or api.anthropic.com origin you selected, and Chrome asks for that host permission when you enable the connection.
+
+
+PRIVACY AND DATA CONTROL
+
+Stealth Prompt is local-first. There is no required product account and no Stealth Prompt cloud service that receives your target's page content.
+
+You choose what leaves the browser through an explicit data-sharing policy:
+
+None — target responses are never sent to the provider. Response analysis is limited to local deterministic checks.
+Redacted — credential-shaped values are removed before submission.
+Full — the selected response is sent verbatim.
+
+The policy is shown in the panel while you configure the run, and the consequences of each choice are stated next to it rather than buried in documentation. Ollama is restricted to loopback. Whichever provider you choose is governed by your own account and agreement with that provider; Stealth Prompt does not change their retention policies.
+
+Local Core session evidence is written to an artifacts directory you configure. Those files may contain sensitive target output and are readable by your operating-system user. You control retention and deletion.
+
+
+SCENARIO FILES: REPRODUCIBLE SETUP, SEPARATE FROM EVIDENCE
+
+A scenario records only how an assessment was configured: objective, provider kind and requested model, mode and limits, sharing policy, target origin, the reviewed interaction binding, and the deterministic scorer configuration.
+
+A scenario deliberately contains no captured target responses, no transcripts, no verdicts, no session identifiers, no credentials, no API keys, no tokens, no cookies, no storage and no headers. The parser rejects a credential-shaped or capture-shaped field on import rather than silently dropping it. That separation is what lets a scenario be handed to a colleague or committed to a repository when the evidence itself cannot be.
+
+Importing a scenario grants no authority. It never restores automatic-send authorization, and replay still requires current host permission plus a fresh validation of the binding against the live page.
+
+
+SECURITY MODEL
+
+The extension treats target pages and target responses as hostile input. A malicious page, or a model reply containing injected instructions, must not be able to broaden the scope you selected.
+
+Page mutations are restricted to a closed operation allowlist. The model cannot invent a selector, a URL, a command, or a browser operation — it can only propose text for the input you already bound. Page content is never rendered as markup in the panel.
+
+Host access is requested at runtime for one origin at a time, through Chrome's own consent prompt, and only after you choose the target tab. There is no blanket host access at install.
+
+The extension does not request permission for cookies, web requests, the debugger, or tab enumeration. The shipped code contains no remote executable code: everything is bundled from source, extension pages run under a strict content security policy, and there is no eval, no dynamically constructed function, and no CDN.
+
+
+ADVANTAGES AT A GLANCE
+
+Real authenticated context. Test the UI and account state that actually matter, without copying session cookies into an automation profile that behaves differently.
+
+Exact, operator-defined scope. One input, one send control, one response container, on one origin you approved. Nothing is crawled and nothing is inferred beyond what you accepted.
+
+You approve the action. Four modes from fully manual to a bounded automatic loop, with authorization that expires rather than persisting quietly.
+
+Findings you can defend. Confirmed means a deterministic check matched. Potential means a model thought so. The distinction is enforced, and the report shows its reasoning.
+
+Bring your own provider. Claude CLI, Codex CLI, local Ollama and provider APIs through the Core, or a direct OpenAI or Anthropic connection with no install at all.
+
+Credentials can stay out of the browser entirely. Core mode keeps keys and processes on your machine. Direct mode is offered as a convenience with its trade-off stated honestly.
+
+Explicit data boundaries. A none, redacted or full sharing policy that you set before the run, not a setting you discover afterwards.
+
+Evidence that survives the session. Structured JSON, a self-contained HTML report, and a separate scenario file that reproduces the setup without leaking the findings.
+
+Shareable setup, private results. Scenario files are designed to be committed to a repository; evidence is designed not to be.
+
+Least privilege by construction. Optional per-origin host access, no cookie or debugger or webRequest permissions, no remote code.
+
+Open source under the MIT license. The extension, the Core, the scoring and the tests are all readable, auditable and forkable.
+
+
+WHAT IT IS NOT
+
+Being clear about this is more useful than overselling.
+
+It is not an automatic vulnerability scanner, and it does not claim complete OWASP coverage. It tests one interaction that you selected, against one objective that you chose.
+
+It does not decide whether you are authorized to test a system. That judgement is yours, and the tool asks you to confirm it.
+
+It cannot guarantee that a finding exists, or that the absence of one means a system is safe. A negative result means this objective, on this interaction, within these limits, produced no confirmed signal.
+
+It does not replace a security review, a threat model, or a human who understands the application.
+
+
+REQUIREMENTS
+
+Chrome 116 or newer, on desktop.
+
+The local Core is optional but recommended, and needs Python 3.10 or newer. Direct API mode needs no local install at all. Building the extension from source additionally needs Node.js 20 or newer.
+
+
+GETTING STARTED
+
+The fastest first success uses the bundled local demo target, so you can learn the workflow without touching anybody's real system.
+
+Install the Core, then run the guided demo. It starts an intentionally vulnerable local demo assistant and the Core together, with the demo's synthetic canary already configured as the deterministic check, and prints the pairing code and the browser steps. Open the demo page, open Stealth Prompt from the toolbar, enter the pairing code, and start a run with the Fake provider — a built-in deterministic backend that contacts nothing.
+
+The run ends confirmed because the demo disclosed the exact canary the Core was told to look for, not because a model judged that it had. For a stateful adaptive test, the demo also offers an advanced mode that requires two different turns before the canary can be disclosed, and a safe mode as a negative control.
+
+From there, point it at a system you are authorized to assess.
+
+
+AUTHORIZED USE
+
+Stealth Prompt is intended only for systems you own or have explicit, documented permission to assess. Testing third-party AI services without authorization may violate their terms of service and the law in your jurisdiction. You are responsible for the scope, the authorization and the handling of any data you capture.
+
+Source code, documentation, threat model and privacy policy are published with the project. Security issues are handled through private vulnerability reporting rather than the public issue tracker.

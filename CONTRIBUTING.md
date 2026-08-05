@@ -23,6 +23,12 @@ npm test
 npm run build
 ```
 
+`pytest -q` includes the real-Chromium end-to-end suite, which needs
+`python -m playwright install chromium` and takes several minutes. CI does not
+run it on push, so it is on you to run it locally when you touch the extension,
+the Core protocol or the page executor. It skips itself when Chromium is absent,
+so a green run without the browser installed proves less than it appears to.
+
 ## Change expectations
 
 - Add tests for behaviour changes and regressions.
