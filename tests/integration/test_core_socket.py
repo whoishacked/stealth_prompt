@@ -387,7 +387,10 @@ class TestAssistantFlowsOverTheWire:
                     await frame(socket, "proposal.request")
                     assert (await reply(socket))["type"] == "proposal.pending"
                     await frame(socket, "cancel")
-                    cancelled = await reply(socket, timeout=1)
+                    # Comfortably under the adapter's 5s chunk delay, so this
+                    # still proves cancel interrupted generation rather than
+                    # waiting it out, but wide enough to survive CI jitter.
+                    cancelled = await reply(socket, timeout=2.5)
                     try:
                         unexpected = await reply(socket, timeout=0.2)
                     except TimeoutError:

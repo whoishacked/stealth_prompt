@@ -46,6 +46,26 @@ def run(coro: Coroutine[Any, Any, T]) -> T:
     return asyncio.run(coro)
 
 
+@pytest.fixture(autouse=True)
+def _cli_backends_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pretend the Claude and Codex CLIs are installed.
+
+    These tests are about provider authority and transactional switching, not
+    about what happens to be on the machine's PATH. Left unpatched they pass on
+    a developer box that has the CLIs and fail in CI that does not, which is
+    exactly backwards for a regression suite.
+    """
+    from stealth_prompt.agents import registry
+
+    cli_kinds = {registry.ProviderKind.CLAUDE, registry.ProviderKind.CODEX}
+    monkeypatch.setattr(
+        registry,
+        "resolve_executable",
+        lambda kind: f"/usr/bin/{kind.value}" if kind in cli_kinds else None,
+    )
+    registry.clear_health_cache()
+
+
 class Sink:
     def __init__(self) -> None:
         self.frames: list[dict[str, Any]] = []
