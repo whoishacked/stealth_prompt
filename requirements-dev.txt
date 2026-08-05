@@ -1,0 +1,14 @@
+# Development and test dependencies.
+#
+# Install with:
+#   pip install -r requirements-dev.txt
+# or, equivalently, as an extra of the package itself:
+#   pip install -e ".[dev]"
+
+-r requirements.txt
+
+pytest>=7.4
+ruff>=0.5
+mypy>=1.10
+types-PyYAML>=6.0
+types-requests>=2.32

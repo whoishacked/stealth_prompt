@@ -4,33 +4,106 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Callable, List, Optional, Protocol
 from .llm_client import LLMClient
 from .web_automation import WebAutomation
 from .prompt_db import PromptDB
 
 
+class LLMClientLike(Protocol):
+    """The subset of LLMClient the orchestrator depends on."""
+
+    def generate_payload(
+        self,
+        test_type: str,
+        conversation_history: Optional[List[Dict[str, str]]] = ...,
+        log: bool = ...,
+    ) -> str: ...
+
+    def check_sensitive_data(self, response: str, log: bool = ...) -> Dict[str, Any]: ...
+
+
+class WebAutomationLike(Protocol):
+    """The subset of WebAutomation the orchestrator depends on."""
+
+    def start(self) -> None: ...
+
+    def send_prompt(self, prompt: str, log: bool = ...) -> bool: ...
+
+    def get_response(self, timeout: Optional[int] = ..., log: bool = ...) -> Optional[str]: ...
+
+    def close(self) -> None: ...
+
+
+class PromptDBLike(Protocol):
+    """The subset of PromptDB the orchestrator depends on."""
+
+    def get_all_prompts(self, test_type: Optional[str] = ...) -> List[Dict[str, Any]]: ...
+
+    def get_successful_chains(self, test_type: Optional[str] = ...) -> List[Dict[str, Any]]: ...
+
+    def get_successful_prompts(self, test_type: Optional[str] = ...) -> List[Dict[str, Any]]: ...
+
+    def try_saved_chain(
+        self, test_type: str, current_conversation: List[Dict[str, str]]
+    ) -> Optional[str]: ...
+
+    def check_response_with_prompts(self, response: str, test_type: str) -> bool: ...
+
+    def add_prompt(
+        self,
+        prompt: str,
+        test_type: str,
+        response: str,
+        confirmed_by_user: bool = ...,
+        conversation_chain: Optional[List[Dict[str, str]]] = ...,
+    ) -> None: ...
+
+
 class PenetrationTester:
     """Main class for orchestrating AI agent penetration testing with Stealth Prompt."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        *,
+        llm_client: Optional[LLMClientLike] = None,
+        web_automation: Optional[WebAutomationLike] = None,
+        prompt_db: Optional[PromptDBLike] = None,
+        input_fn: Callable[[str], str] = input,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         """
         Initialize the penetration tester.
-        
+
         Args:
             config: Full configuration dictionary
+            llm_client: Optional pre-built LLM client (defaults to one built from config)
+            web_automation: Optional pre-built browser driver (defaults to one built from config)
+            prompt_db: Optional pre-built prompt database (defaults to one built from config)
+            input_fn: Callable used to ask the operator to confirm a finding
+            sleep: Callable used for the delays between turns and tests
+
+        The component arguments are seams for testing and for the incremental
+        migration; the defaults preserve the original construction behavior.
         """
         self.config = config
-        
+        self.input_fn = input_fn
+        self.sleep = sleep
+
         # Merge proxy config into llm and web configs for component access
         proxy_config = config.get('proxy', {})
         llm_config = config['llm'].copy()
         llm_config['proxy'] = proxy_config
         web_config = config['web'].copy()
         web_config['proxy'] = proxy_config
-        
-        self.llm_client = LLMClient(llm_config)
-        self.web_automation = WebAutomation(web_config)
+
+        self.llm_client: LLMClientLike = (
+            llm_client if llm_client is not None else LLMClient(llm_config)
+        )
+        self.web_automation: WebAutomationLike = (
+            web_automation if web_automation is not None else WebAutomation(web_config)
+        )
         self.testing_config = config.get('testing', {})
         self.output_config = config.get('output', {})
         self.results: List[Dict[str, Any]] = []
@@ -42,7 +115,9 @@ class PenetrationTester:
         
         # Initialize prompt database
         db_path = self.testing_config.get('prompt_db_path', 'successful_prompts.json')
-        self.prompt_db = PromptDB(db_path)
+        self.prompt_db: PromptDBLike = (
+            prompt_db if prompt_db is not None else PromptDB(db_path)
+        )
         db_count = len(self.prompt_db.get_all_prompts())
         chain_count = len(self.prompt_db.get_successful_chains())
         if db_count > 0:
@@ -70,6 +145,7 @@ class PenetrationTester:
         
         conversation_history = []
         sensitive_data_found = False
+        error_message: Optional[str] = None
         turn = 0
         
         # Start conversation
@@ -116,14 +192,16 @@ class PenetrationTester:
             success = self.web_automation.send_prompt(current_payload, log=True)
             
             if not success:
-                print(f"[ERROR] Failed to send prompt on turn {turn}")
+                error_message = f"Failed to send prompt on turn {turn}"
+                print(f"[ERROR] {error_message}")
                 break
-            
+
             print(f"\n[WEB AUTOMATION] Waiting for response...")
             response = self.web_automation.get_response(log=True)
-            
+
             if not response:
-                print(f"[ERROR] Failed to get response on turn {turn}")
+                error_message = f"Failed to get response on turn {turn}"
+                print(f"[ERROR] {error_message}")
                 break
             
             # First check database for known successful patterns
@@ -153,7 +231,9 @@ class PenetrationTester:
                 should_continue = True
                 
                 while True:
-                    user_input = input("\nIs this REAL sensitive data? (yes/no/continue): ").strip().lower()
+                    user_input = self.input_fn(
+                        "\nIs this REAL sensitive data? (yes/no/continue): "
+                    ).strip().lower()
                     if user_input in ['yes', 'y']:
                         # User confirmed - save full conversation chain to database
                         # Include the full conversation history that led to success
@@ -172,7 +252,7 @@ class PenetrationTester:
                         print(f"[DB] Conversation chain saved to database")
                         
                         # Ask if user wants to continue
-                        continue_input = input("\nContinue testing? (yes/no): ").strip().lower()
+                        continue_input = self.input_fn("\nContinue testing? (yes/no): ").strip().lower()
                         if continue_input not in ['yes', 'y']:
                             print(f"[STOP] User requested to stop ALL testing")
                             should_continue = False
@@ -208,25 +288,37 @@ class PenetrationTester:
             })
             
             # Small delay between turns
-            time.sleep(1)
-        
-        # Build result
+            self.sleep(1)
+
+        # Build result. An execution failure is reported as 'error' so that it
+        # is not indistinguishable from a test that ran and found nothing.
+        if error_message:
+            status = 'error'
+        elif sensitive_data_found:
+            status = 'success'
+        else:
+            status = 'completed'
+
         result = {
             'test_type': test_type,
             'conversation_history': conversation_history,
             'total_turns': turn,
             'sensitive_data_found': sensitive_data_found,
-            'status': 'success' if sensitive_data_found else 'completed',
+            'status': status,
             'timestamp': datetime.now().isoformat()
         }
-        
-        if self.stop_requested:
+        if error_message:
+            result['error'] = error_message
+
+        if error_message:
+            print(f"\n[RESULT] Test failed on turn {turn}: {error_message}")
+        elif self.stop_requested:
             print(f"\n[RESULT] Test stopped by user request")
         elif sensitive_data_found:
             print(f"\n[RESULT] Test completed: Sensitive data was extracted!")
         else:
             print(f"\n[RESULT] Test completed: No sensitive data extracted after {turn} turns")
-        
+
         self.results.append(result)
         return result
     
@@ -275,7 +367,7 @@ class PenetrationTester:
                     
                     # Small delay between tests
                     if not self.stop_requested:
-                        time.sleep(2)
+                        self.sleep(2)
             
             if self.stop_requested:
                 print(f"\n[SESSION] Testing session stopped by user request")

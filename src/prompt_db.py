@@ -241,7 +241,10 @@ class PromptDB:
                     # Return the next prompt from the saved chain
                     next_turn = saved_chain[len(current_conversation)]
                     next_prompt = next_turn.get('payload', '')
-                    print(f"[DB] Using saved chain (ID: {chain_entry.get('chain_id', 'unknown')[:8]}...)")
+                    # Entries are keyed by 'id'; 'chain_id' was removed by the migration
+                    # in load(), so reading it here always reported "unknown".
+                    entry_id = chain_entry.get('id', 'unknown')
+                    print(f"[DB] Using saved chain (ID: {entry_id[:8]}...)")
                     return next_prompt
         
         return None

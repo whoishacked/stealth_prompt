@@ -1,0 +1,104 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stealth-prompt"
+version = "0.2.0"
+description = "Local-first, browser-native AI security testing for authorized targets"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+requires-python = ">=3.10"
+keywords = ["prompt-injection", "security-testing", "llm", "black-box"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+]
+dependencies = [
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.32.0",
+    "selenium>=4.20.0",
+    "websockets>=12",
+]
+
+[project.urls]
+Homepage = "https://github.com/whoishacked/stealth_prompt"
+Documentation = "https://github.com/whoishacked/stealth_prompt/tree/main/docs"
+Repository = "https://github.com/whoishacked/stealth_prompt"
+Issues = "https://github.com/whoishacked/stealth_prompt/issues"
+Changelog = "https://github.com/whoishacked/stealth_prompt/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-PyYAML>=6.0",
+    "types-requests>=2.32",
+    "build>=1.2",
+    "twine>=5.1",
+]
+# Required by requests for socks4/socks5 proxy scopes.
+socks = ["PySocks>=1.7.1"]
+# Browser workbench. Kept optional so the base install stays light and the
+# offline test suite never needs a browser binary. After installing, fetch the
+# bundled browser with: python -m playwright install chromium
+workbench = ["playwright>=1.47"]
+
+[project.scripts]
+stealth-prompt = "stealth_prompt.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+# The extension is rendered per session from these templates, so they must
+# ship inside the wheel.
+"stealth_prompt.workbench" = ["extension/*.js", "extension/*.tmpl"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["stealth_prompt*"]
+
+# The legacy modules under src/ (config_loader, llm_client, penetration_tester,
+# prompt_db, web_automation) are intentionally not packaged. They remain
+# importable from a source checkout for `python main.py` and are replaced
+# package-by-package by later migration milestones.
+
+[tool.pytest.ini_options]
+minversion = "7.4"
+testpaths = ["tests"]
+# "." makes the legacy `main` and `src.*` modules importable; "src" makes the
+# new `stealth_prompt` package importable without requiring an install.
+pythonpath = [".", "src"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# Legacy modules are excluded until the migration replaces them; linting them
+# now would produce a large diff unrelated to this milestone.
+extend-exclude = [
+    "src/config_loader.py",
+    "src/llm_client.py",
+    "src/penetration_tester.py",
+    "src/prompt_db.py",
+    "src/web_automation.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/stealth_prompt", "tests"]
+ignore_missing_imports = true
+warn_unused_ignores = true

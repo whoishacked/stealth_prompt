@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Stealth Prompt Workbench",
+  "version": "0.1.0",
+  "description": "Operator dock for authorized prompt-injection testing.",
+  "key": "__EXTENSION_KEY__",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage"],
+  "host_permissions": ["__TARGET_ORIGIN__/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["__TARGET_ORIGIN__/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  },
+  "web_accessible_resources": []
+}

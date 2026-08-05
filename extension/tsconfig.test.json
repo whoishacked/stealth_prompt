@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist-test",
+    "module": "ES2022",
+    "types": ["node", "chrome"]
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

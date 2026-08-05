@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    name: extension quality and package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - name: Install
+        working-directory: extension
+        run: npm ci
+      - name: Lint and type check
+        working-directory: extension
+        run: npm run lint
+      - name: Tests
+        working-directory: extension
+        run: npm test
+      - name: Build Chrome extension
+        working-directory: extension
+        run: npm run build
+      - name: Package Chrome extension
+        working-directory: extension/dist
+        run: zip -r ../stealth-prompt-extension.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stealth-prompt-extension
+          path: extension/stealth-prompt-extension.zip
+          if-no-files-found: error
+
+  unit:
+    name: unit (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: pip install -e ".[dev,workbench]"
+      - name: Lint
+        run: ruff check .
+      - name: Type check
+        run: mypy
+      - name: Compile
+        run: python -m compileall -q main.py src tests
+      # The browser-backed tests skip themselves when Chromium is absent, so
+      # this job covers everything else on every supported Python.
+      - name: Tests
+        run: pytest -q
+
+  browser:
+    name: browser end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev,workbench]"
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: End-to-end tests
+        run: pytest tests/integration -q
+
+  package:
+    name: python distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and validate
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*
+
+  legacy:
+    name: legacy runner still imports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python main.py --help

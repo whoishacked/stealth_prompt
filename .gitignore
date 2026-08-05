@@ -34,15 +34,22 @@ ENV/
 *~
 
 # Results and logs
+# Session evidence is ignored by directory, not by extension: a blanket *.json
+# rule silently swallowed the extension tsconfigs and broke a fresh clone's CI.
 results/
+.screenshot-profile/
 *.log
-*.json
-!package.json
-!package-lock.json
 
 # Cache
 cache/
 *.cache
+node_modules/
+extension/dist-test/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
 # Prompt database
 successful_prompts.json
@@ -60,6 +67,10 @@ Thumbs.db
 *.png
 *.jpg
 screenshots/
+# Product artwork and the store listing assets are source, not scratch captures.
+!extension/icons/*.png
+!docs/store/*.png
+extension/*.zip
 
 # ChromeDriver
 chromedriver.exe
