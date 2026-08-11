@@ -129,7 +129,8 @@ the quality expected from paid software.
 - [x] Core dependency is present in the default installation.
 - [x] TypeScript lint/test/build runs in CI alongside Python and browser E2E.
 - [ ] Signed release archives, SBOM and provenance attestations.
-- [ ] Chrome Web Store listing, disclosures, screenshots and support URL.
+- [x] [Chrome Web Store listing](https://chromewebstore.google.com/detail/stealth-prompt/genafpggpdjagohhbngddncbanhpcdpm),
+  disclosures, screenshots and support URL.
 - [ ] Native Core installers and automatic update checks.
 
 ## Release 0.3 — professional local workbench

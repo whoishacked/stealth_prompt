@@ -51,18 +51,14 @@ unsafe output handling.
 
 ## Quick start
 
-Requirements: Python 3.10 or newer, Node.js 20 or newer for building from source, and
-Chrome 116 or newer.
+Install [Stealth Prompt from the Chrome Web Store](https://chromewebstore.google.com/detail/stealth-prompt/genafpggpdjagohhbngddncbanhpcdpm),
+then pin it to the Chrome toolbar. Chrome 116 or newer is required.
+
+For the recommended local Core path, Python 3.10 or newer is also required:
 
 ```bash
 # Install the local Core from this checkout.
 python -m pip install .
-
-# Build the unpacked Chrome extension.
-cd extension
-npm ci
-npm run build
-cd ..
 
 # Start the local Core.
 stealth-prompt serve
@@ -70,12 +66,9 @@ stealth-prompt serve
 
 Then:
 
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Choose **Load unpacked** and select `extension/dist`.
-4. Pin Stealth Prompt and open it from the toolbar on the target tab.
-5. Enter the one-time pairing code printed by `stealth-prompt serve`.
-6. Start with the **Fake** provider and the bundled local demo.
+1. Open Stealth Prompt from the toolbar on the target tab.
+2. Enter the one-time pairing code printed by `stealth-prompt serve`.
+3. Start with the **Fake** provider and the bundled local demo.
 
 Alternatively, choose **Direct API** in the panel, enter an OpenAI or Anthropic key,
 and load the models without installing or pairing the Core. The key is not saved, but

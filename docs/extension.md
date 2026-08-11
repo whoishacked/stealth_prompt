@@ -93,7 +93,11 @@ external. Stop it with Ctrl-C; both the target and the Core shut down.
 
 ## Install
 
-### 1. Build the extension
+Install [Stealth Prompt from the Chrome Web Store](https://chromewebstore.google.com/detail/stealth-prompt/genafpggpdjagohhbngddncbanhpcdpm),
+then pin it to the Chrome toolbar. Chrome 116 or newer is required (that is when the
+Side Panel API stabilised).
+
+For local extension development, build and load the unpacked version instead:
 
 ```bash
 cd extension
@@ -101,16 +105,14 @@ npm ci
 npm run build      # produces extension/dist/
 ```
 
-### 2. Load it in Chrome
+Then:
 
 1. Open `chrome://extensions`
 2. Turn on **Developer mode** (top right)
 3. Click **Load unpacked** and choose the `extension/dist` folder
 4. Pin the Stealth Prompt icon to your toolbar
 
-Chrome 116 or newer is required (that is when the Side Panel API stabilised).
-
-### 3. Choose a connection
+### Choose a connection
 
 For Claude CLI, Codex CLI, Ollama, deterministic scorers, HTML evidence, or maximum
 credential isolation, start the Core:

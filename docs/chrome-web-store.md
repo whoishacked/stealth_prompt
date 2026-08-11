@@ -1,5 +1,7 @@
 # Chrome Web Store release brief
 
+Published listing: [Stealth Prompt — Chrome Web Store](https://chromewebstore.google.com/detail/stealth-prompt/genafpggpdjagohhbngddncbanhpcdpm)
+
 ## Listing copy
 
 **Name:** Stealth Prompt — AI Security Workbench
