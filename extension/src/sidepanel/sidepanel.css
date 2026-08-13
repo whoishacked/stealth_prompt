@@ -418,6 +418,10 @@ button[disabled] { cursor: not-allowed; opacity: 0.55; }
 /* ------------------------------------------------------------ report library */
 
 .report-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.core-cta { margin-top: var(--s3); padding-left: var(--s3); border-left: 2px solid var(--accent); }
+.core-cta strong { display: block; font-size: 12px; }
+.core-cta .note { margin: var(--s1) 0; }
+.core-cta a { color: #c5beff; font-size: 12px; font-weight: 650; }
 .report-row {
   padding: 9px 10px;
   border: 1px solid var(--line);

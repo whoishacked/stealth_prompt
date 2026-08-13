@@ -2237,6 +2237,23 @@ function renderReportLibrary(root: HTMLElement): void {
         'Stored only in this Chrome profile. Reports can contain sensitive target responses; delete them when they are no longer needed.',
       ),
     );
+    const coreCta = el('div', 'core-cta');
+    coreCta.appendChild(el('strong', '', 'Want durable evidence and a path to local strategy learning?'));
+    coreCta.appendChild(
+      el(
+        'div',
+        'note',
+        'Local Core already adds portable reports on disk, Claude/Codex CLI and Ollama. Learning from reviewed runs is planned for Core mode.',
+      ),
+    );
+    const coreDocs = document.createElement('a');
+    coreDocs.id = 'core-docs-link';
+    coreDocs.href = 'https://whoishacked.com/stealth_prompt/connections/';
+    coreDocs.target = '_blank';
+    coreDocs.rel = 'noreferrer';
+    coreDocs.textContent = 'Set up Local Core →';
+    coreCta.appendChild(coreDocs);
+    node.appendChild(coreCta);
     if (!directReports.length) {
       node.appendChild(
         el(

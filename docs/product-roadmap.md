@@ -141,6 +141,9 @@ Scenario files and the deterministic scorer set shipped in 0.2 and are the
 foundation the rest of this release builds on. The remaining items are
 sequenced so each one has a real evidence source before it is built.
 
+- Opt-in Core strategy memory that turns reviewed, sanitized run outcomes into
+  local reusable tactics. Direct API keeps a read-only built-in catalogue and
+  never learns from browser-local reports automatically.
 - Projects, targets, scope notes and authorization records.
   **Prerequisite:** a Core-owned local store with atomic writes, owner-only
   permissions, versioned metadata and configurable retention. Scenario export

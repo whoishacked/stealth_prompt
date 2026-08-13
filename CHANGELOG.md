@@ -75,7 +75,7 @@ All notable changes are documented here. The project follows Semantic Versioning
   320 px.
 - A restrained interface token system (elevation, text, border, spacing, radius,
   control height, focus and motion scales) documented in
-  `docs/design-system.md`, replacing per-group cards with space and hairline
+  `internal-docs/design-system.md`, replacing per-group cards with space and hairline
   rules.
 - Run state is carried by a left accent rule and fixed-height status rows rather
   than by flooding cards with colour, so the card no longer resizes as a run

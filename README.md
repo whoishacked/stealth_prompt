@@ -106,8 +106,9 @@ API mode keeps up to 50 reports in this Chrome profile through IndexedDB and
 also supports explicit JSON downloads. These local reports may contain target
 responses and can be viewed or deleted from Reports.
 
-See the complete [extension guide](docs/extension.md) for provider setup, modes,
-manual response capture, permissions, verdicts and troubleshooting.
+Read the [documentation](https://whoishacked.com/stealth_prompt/) for installation,
+provider setup, modes, reports, permissions, verdicts and troubleshooting. The Markdown
+source remains in [`docs/`](docs/index.md).
 
 ## Architecture
 
@@ -148,8 +149,8 @@ cookies, web requests, or debugger access. The shipped code contains no remote
 executable code.
 
 Read [PRIVACY.md](PRIVACY.md), [SECURITY.md](SECURITY.md) and the detailed
-[threat model](docs/extension.md#threat-model) before using target data with an
-external provider.
+[threat model](https://whoishacked.com/stealth_prompt/extension/#threat-model) before
+using target data with an external provider.
 
 ## Development
 
@@ -184,7 +185,7 @@ Contribution rules are in [CONTRIBUTING.md](CONTRIBUTING.md). Product priorities
 the definition of done for the public beta are in the
 [product roadmap](docs/product-roadmap.md). Notable changes are recorded in
 [CHANGELOG.md](CHANGELOG.md). Store copy, permission justifications and the release
-checklist are in the [Chrome Web Store brief](docs/chrome-web-store.md).
+checklist are in the [Chrome Web Store brief](internal-docs/chrome-web-store.md).
 
 ## Current status
 

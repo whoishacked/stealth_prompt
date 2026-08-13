@@ -1,6 +1,6 @@
 """Main entry point for Stealth Prompt (legacy Selenium runner).
 
-This is the compatibility entry point described in ``docs/migration-plan.md``.
+This is the compatibility entry point described in ``internal-docs/migration-plan.md``.
 The scenario-driven ``stealth-prompt`` command replaces it in a later
 milestone; until then ``python main.py`` remains the supported way to run the
 legacy tester.

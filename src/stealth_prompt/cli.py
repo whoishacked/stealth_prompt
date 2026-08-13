@@ -12,7 +12,7 @@ Two commands exist today:
 Invoking the command with no arguments still prints the version and points at
 the legacy Selenium runner, which remains the supported path until its
 replacement is tested. The scenario-driven ``validate``/``run`` commands are
-tracked in ``docs/migration-plan.md``.
+tracked in ``internal-docs/migration-plan.md``.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ LEGACY_RUNNER_HINT = (
     "\n"
     "    python main.py --config config.yaml\n"
     "\n"
-    "See docs/migration-plan.md for the milestone that adds `validate` and `run`."
+    "See internal-docs/migration-plan.md for the milestone that adds `validate` and `run`."
 )
 
 AUTHORIZATION_NOTICE = (

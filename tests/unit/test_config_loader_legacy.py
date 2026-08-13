@@ -1,6 +1,6 @@
 """Characterization tests for the legacy configuration loader.
 
-These pin down the behavior described in docs/current-architecture.md so that
+These pin down the behavior described in internal-docs/current-architecture.md so that
 later milestones can change it deliberately rather than by accident.
 """
 
@@ -197,7 +197,7 @@ class TestValidation:
         assert loader.config["proxy"]["enabled"] is False
 
     def test_empty_yaml_document_fails_without_a_clear_message(self, workdir: Path) -> None:
-        # Known gap recorded in docs/current-architecture.md: an empty document
+        # Known gap recorded in internal-docs/current-architecture.md: an empty document
         # yields None and fails with a TypeError instead of a validation error.
         path = workdir / "config.yaml"
         path.write_text("", encoding="utf-8")

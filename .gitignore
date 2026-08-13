@@ -50,6 +50,9 @@ extension/dist-test/
 .mypy_cache/
 .coverage
 htmlcov/
+site/
+.zensical/
+.venv-docs/
 
 # Prompt database
 successful_prompts.json
@@ -69,6 +72,7 @@ Thumbs.db
 screenshots/
 # Product artwork and the store listing assets are source, not scratch captures.
 !extension/icons/*.png
+!docs/assets/*.png
 !docs/store/*.png
 extension/*.zip
 

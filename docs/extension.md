@@ -362,7 +362,7 @@ An error always reopens the step it belongs to, so a contextual message can
 never be filed correctly and still be invisible.
 
 The interface tokens, states and accessibility rules are documented in
-[the interface guide](design-system.md).
+[the interface guide](https://github.com/whoishacked/stealth_prompt/blob/main/internal-docs/design-system.md).
 
 ### Automatic transitions
 

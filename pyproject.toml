@@ -31,7 +31,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/whoishacked/stealth_prompt"
-Documentation = "https://github.com/whoishacked/stealth_prompt/tree/main/docs"
+Documentation = "https://whoishacked.com/stealth_prompt/"
 Repository = "https://github.com/whoishacked/stealth_prompt"
 Issues = "https://github.com/whoishacked/stealth_prompt/issues"
 Changelog = "https://github.com/whoishacked/stealth_prompt/blob/main/CHANGELOG.md"

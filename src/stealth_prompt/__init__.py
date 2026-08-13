@@ -1,7 +1,7 @@
 """Stealth Prompt: black-box prompt-injection testing for authorized targets.
 
 This package is the destination for the incremental migration described in
-``docs/migration-plan.md``. During milestone 1 it contains only the console
+``internal-docs/migration-plan.md``. During milestone 1 it contains only the console
 entry-point foundation; the runner, adapters, strategies, and oracles arrive in
 later milestones. The legacy Selenium implementation remains under ``src/`` and
 is reached through ``python main.py``.

@@ -2755,6 +2755,7 @@ class TestWorkspaceFlow:
                 )
                 return {
                     "body": await panel.text_content("#report-library"),
+                    "core_docs": await panel.get_attribute("#core-docs-link", "href"),
                     "stored": stored,
                 }
             finally:
@@ -2764,6 +2765,8 @@ class TestWorkspaceFlow:
         seen = asyncio.run(scenario())
         assert "No Direct API reports stored yet" in seen["body"]
         assert "Stored only in this Chrome profile" in seen["body"]
+        assert "path to local strategy learning" in seen["body"]
+        assert seen["core_docs"] == "https://whoishacked.com/stealth_prompt/connections/"
         # No fake history, and no credential in durable storage.
         assert "Open report" not in seen["body"]
         lowered = seen["stored"].lower()

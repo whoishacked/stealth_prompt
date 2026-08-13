@@ -7,7 +7,7 @@ the response.
 
 Phase 1 provides the typed configuration, the agent contract, and the browser
 operation allowlist. The broker, extension, and capture loop arrive in later
-phases; see ``docs/migration-plan.md``.
+phases; see ``internal-docs/migration-plan.md``.
 """
 
 from __future__ import annotations
