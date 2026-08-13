@@ -36,7 +36,7 @@ jobs:
       - name: Package Chrome extension
         working-directory: extension/dist
         run: zip -r ../stealth-prompt-extension.zip .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: stealth-prompt-extension
           path: extension/stealth-prompt-extension.zip
