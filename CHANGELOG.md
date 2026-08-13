@@ -6,7 +6,7 @@ All notable changes are documented here. The project follows Semantic Versioning
 
 ### Added
 
-- Commercial-grade Side Panel information architecture and visual system.
+- Side Panel information architecture and visual system.
 - Persistent external-provider and browser-held credential warnings without blocking consent checkboxes.
 - Expanded AI-agent security objective catalogue.
 - Self-contained HTML evidence report alongside JSON export.
@@ -105,6 +105,8 @@ All notable changes are documented here. The project follows Semantic Versioning
 ### Changed
 
 - Extension-first installation and product narrative.
+- Public documentation now focuses on installation, testing, reports, privacy, and a
+  concise roadmap; obsolete development and migration material was removed.
 - Core WebSocket dependency is part of the default package.
 - Auto resumes the already prepared proposal after an unconfirmed review instead
   of paying for another generation.

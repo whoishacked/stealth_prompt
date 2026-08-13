@@ -14,7 +14,7 @@ import pytest
 
 from src.prompt_db import PromptDB
 
-# Synthetic canary in the style used by internal-docs/scenario-schema.md.
+# Synthetic canary used only by this test module.
 CANARY = "SPCANARY7GH3KD"
 
 
@@ -172,8 +172,7 @@ class TestQueries:
         assert len(db.get_all_prompts()) == 2
 
     def test_check_prompt_hashes_a_single_prompt_and_misses_chain_ids(self, db: PromptDB) -> None:
-        # Known quirk from internal-docs/current-architecture.md: entry IDs hash the whole
-        # chain, so a single-prompt hash lookup never matches.
+        # Entry IDs hash the whole chain, so a single-prompt hash lookup never matches.
         assert db.check_prompt("ask-a") is None
 
     def test_get_chain_by_id_finds_a_stored_entry(self, db: PromptDB) -> None:

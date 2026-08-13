@@ -5,7 +5,6 @@ site_author = "Stealth Prompt contributors"
 site_url = "https://whoishacked.com/stealth_prompt/"
 repo_url = "https://github.com/whoishacked/stealth_prompt"
 repo_name = "whoishacked/stealth_prompt"
-edit_uri = "edit/main/docs/"
 copyright = "Copyright &copy; 2026 Stealth Prompt contributors"
 
 nav = [
@@ -20,10 +19,8 @@ nav = [
   { "Reference" = [
     { "Security and privacy" = "security-and-privacy.md" },
     { "Troubleshooting" = "troubleshooting.md" },
-    { "Legacy Workbench" = "workbench.md" },
   ] },
-  { "Contribute" = [
-    { "Development" = "development.md" },
+  { "Project" = [
     { "Product roadmap" = "product-roadmap.md" },
     { "Changelog" = "https://github.com/whoishacked/stealth_prompt/blob/main/CHANGELOG.md" },
   ] },
@@ -34,7 +31,6 @@ logo = "assets/logo.png"
 favicon = "assets/favicon.png"
 font = false
 features = [
-  "content.action.edit",
   "content.action.view",
   "content.code.copy",
   "navigation.footer",

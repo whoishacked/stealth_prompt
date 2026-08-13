@@ -18,7 +18,8 @@ llm:
 
 # Web Automation Configuration
 web:
-  url: "https://gandalf.lakera.ai/do-not-tell"
+  # Start the bundled target with: stealth-prompt demo
+  url: "http://127.0.0.1:8765/"
   method: "GET"  # Options: "GET", "POST"
   
   # Selenium Configuration
@@ -43,7 +44,7 @@ web:
       # Input element (textarea/input where prompt is entered)
       input:
         strategy: "id"  # Options: "id", "class", "css", "xpath", "name"
-        value: "comment"
+        value: "message"
       
       # Submit button
       submit:
@@ -52,13 +53,13 @@ web:
         # Optional: Parent element to narrow down the search
         # If multiple submit buttons exist, specify a parent container
         parent:
-          strategy: "class"  # Options: "id", "class", "css", "xpath", "name"
-          value: "first-page"  # e.g., "chat-form" or "input-container"
+          strategy: "id"  # Options: "id", "class", "css", "xpath", "name"
+          value: "form"  # e.g., "chat-form" or "input-container"
       
       # Response element (where AI response appears)
       response:
-        strategy: "class"
-        value: "answer"
+        strategy: "id"
+        value: "log"
     
     # Optional: Custom wait conditions
     wait_for_response: true

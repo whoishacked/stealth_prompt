@@ -42,13 +42,14 @@ def test_help_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
     assert "prompt-injection" in capsys.readouterr().out
 
 
-def test_default_invocation_points_at_the_legacy_runner() -> None:
+def test_default_invocation_points_at_the_extension_core() -> None:
     out = io.StringIO()
 
     code = main([], stdout=out)
 
     assert code == 0
-    assert "python main.py" in out.getvalue()
+    assert "stealth-prompt serve" in out.getvalue()
+    assert "stealth-prompt demo" in out.getvalue()
 
 
 def test_unknown_argument_is_rejected() -> None:

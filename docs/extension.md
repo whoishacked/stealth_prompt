@@ -361,9 +361,6 @@ once beside its own control and again in a summary.
 An error always reopens the step it belongs to, so a contextual message can
 never be filed correctly and still be invisible.
 
-The interface tokens, states and accessibility rules are documented in
-[the interface guide](https://github.com/whoishacked/stealth_prompt/blob/main/internal-docs/design-system.md).
-
 ### Automatic transitions
 
 The active workspace is never stored. It is computed from the assessment plus
@@ -535,32 +532,14 @@ as text. The self-contained HTML report is never injected into the panel,
 because it contains target output and must never be given a script context;
 HTML and JSON remain available as explicit downloads.
 
-Deletion is deliberately not implemented in this pass. Removing evidence is not
-an action to ship half-built, and a delete button that silently failed — or
-removed the wrong directory — would be worse than none.
+Core reports remain in the configured artifact directory until the operator removes
+them there.
 
 In **Direct API mode** there is no Core artifact directory. The extension instead
 keeps up to 50 bounded reports in IndexedDB belonging to this Chrome profile.
 Reports opens their payloads, selected target responses and evaluations in the same
 safe text-only viewer, and provides JSON download and per-report deletion. The API
 key is never included. Removing the extension removes this browser-local history.
-
-### Protocol messages
-
-Both are versioned frames on the existing paired loopback socket.
-
-| Frame | Direction | Payload |
-| --- | --- | --- |
-| `reports.list` | panel → Core | `limit` (1–200) |
-| `reports` | Core → panel | `reports[]` of bounded metadata, `root`, `truncated` |
-| `reports.open` | panel → Core | `report_id`, `artifact` |
-| `report` | Core → panel | `report_id`, `artifact`, `path`, `content` |
-
-`report_id` must match the Core's own directory pattern and `artifact` must be
-one of `report.html`, `session.json`, `scenario.json`. The resolved path is
-re-checked to be inside the artifacts root, so a crafted id and a symlink
-planted in the directory are both refused with `unknown_report`. Listings are
-length-capped and every field is parsed and bounded again on the extension side.
 
 ## What the extension stores, and what it never stores
 
@@ -654,110 +633,5 @@ What it does **not** defend against, and you should keep in mind:
 
 ## Troubleshooting
 
-**The panel says it cannot reach the Core.**
-Is `stealth-prompt serve` still running? It must be on the same machine. If you started
-it with `--port`, set the same port in the box next to **Connect** — the panel remembers
-it across reloads.
-
-**Pairing is rejected.**
-Codes expire after 15 minutes and work once. Restart `serve` for a fresh code. Note that
-`O`/`0` and `I`/`1` are not used in codes, so you cannot confuse them.
-
-**"Could not establish connection. Receiving end does not exist."**
-The executor is not in the page yet. Reload the target tab. If it persists, confirm you
-granted access to that site.
-
-**A selector "no longer matches" or "is ambiguous".**
-The page changed, or your selector matches several elements. Re-pick the element. The run
-pauses rather than acting on the wrong element.
-
-**Everything says `potential` and nothing is ever `confirmed`.**
-Expected without deterministic checks. Add `--expect-regex` with a canary you planted, or
-confirm the finding yourself.
-
-**Capture times out.**
-The reply selector may point at the wrong element, or the target is slower than the
-capture timeout. Re-pick an example reply.
-
-**Claude or Codex generation feels slower than using the CLI in a terminal.**
-The panel waits for a complete, schema-valid JSON decision before it exposes a payload;
-a terminal can feel faster because it paints the first streamed token immediately.
-The green timing note above a generated payload shows the measured provider operation,
-so capture time and model time are distinguishable. Follow-up turns combine reply
-analysis and the next proposal in one model call, and the CLI adapters use a minimal
-system prompt with low reasoning effort. The selected model still dominates latency;
-choose a faster model in **AI** if the remaining delay is too high.
-
-**Select input/send/response appears to do nothing.**
-Activate the target tab and click the Stealth Prompt toolbar icon once more; this is the
-gesture that grants temporary `activeTab` access and records the target. Then press a
-Select button and approve Chrome's per-site access request. Errors are shown near the
-top of the panel. Controls inside iframes are not selectable in this release; the picker
-detects that case and reports it instead of waiting forever.
-
----
-
-## Development
-
-```bash
-cd extension
-npm ci
-npm run lint     # type-checks shipped code and tests
-npm test         # unit tests (node --test)
-npm run build    # dist/
-```
-
-After a rebuild, press **Reload** on `chrome://extensions` to pick up the new code.
-
-The manifest is a static file, checked in at `extension/manifest.json` and copied to
-`dist/` unchanged — it is not generated per run.
-
-The generated icon source is `extension/icons/icon-source.png`. The build ships only
-the audited 16, 32, 48, and 128 px variants referenced by the manifest.
-
-The content script is built as an **IIFE**, not an ES module: `chrome.scripting`
-injects classic scripts, so an ESM bundle would fail to parse on its `export` statement
-and no listener would ever register.
-
-Python-side checks:
-
-```bash
-pytest -q
-ruff check .
-mypy src/stealth_prompt tests
-```
-
-### Real-browser tests
-
-`tests/integration/test_extension_e2e.py` loads `extension/dist` unpacked in Chromium
-and drives the real panel, worker, and executor against a real Core.
-
-Two harness notes:
-
-- A Side Panel cannot be opened programmatically (Chrome requires a user gesture), so
-  the panel is loaded as an extension page in a tab. Same document, same script, same
-  `chrome.*` APIs — only the container differs.
-- Tests that drive a page load a *copy* of the build whose manifest names
-  `http://127.0.0.1/*` as a static host permission. Headless Chrome cannot display the
-  consent bubble that `chrome.permissions.request` opens, and the grant lives in the
-  profile's MAC-signed `Secure Preferences`, so it cannot be seeded. Only permission
-  *acquisition* is bypassed; the shipped manifest is still held to the least-privilege
-  rule by its own test.
-
----
-
-## Relationship to the Workbench
-
-The CLI-launched browser **Workbench** (`stealth-prompt workbench`) is **deprecated**. It
-still works and its tests still run, but the extension is where the work continues.
-
-| | Workbench | Extension |
-|---|---|---|
-| Browser | A separate automation Chromium | Your normal Chrome profile |
-| Session | You log in again in the automation browser | Already logged in |
-| Launch | The CLI opens a browser for you | You open your own; `serve` never does |
-| UI | A local web page | MV3 Side Panel |
-
-To migrate: build and load the extension, run `stealth-prompt serve` instead of
-`stealth-prompt workbench`, and pick your elements again in the panel. Objectives,
-sharing settings, verdict rules, and the evidence format are the same.
+See the dedicated [troubleshooting guide](troubleshooting.md) for connection, pairing,
+binding, capture, provider latency, and recovery problems.

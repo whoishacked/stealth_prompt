@@ -76,8 +76,8 @@ it exists in the browser process; use a restricted project key with a spend limi
 
 ### The guided demo
 
-For a first success, one command replaces steps 5–6 above. It starts the local
-demo target *and* the Core together, with the demo's synthetic canary already
+For a first success, one command starts the local demo target *and* the Core
+together, with the demo's synthetic canary already
 configured as the deterministic check, and prints the pairing code, the browser
 steps and what to do when something fails:
 
@@ -152,52 +152,20 @@ Read [PRIVACY.md](PRIVACY.md), [SECURITY.md](SECURITY.md) and the detailed
 [threat model](https://whoishacked.com/stealth_prompt/extension/#threat-model) before
 using target data with an external provider.
 
-## Development
+## Contributing
 
-```bash
-python -m pip install -e ".[dev,workbench]"
-ruff check .
-mypy
-pytest -q
-
-cd extension
-npm ci
-npm run lint
-npm test
-npm run build
-```
-
-CI validates Python 3.10–3.13, TypeScript, the packaged extension and the Python
-distribution on every push.
-
-The real-Chromium end-to-end suite is not part of that gate. It drives a live
-browser for about five minutes and is timing-sensitive on shared runners, so it
-runs on demand from the Actions tab and locally:
-
-```bash
-pytest tests/integration -q
-```
-
-Run it before cutting a release, and after any change to the extension, the
-Core protocol or the page executor.
-
-Contribution rules are in [CONTRIBUTING.md](CONTRIBUTING.md). Product priorities and
-the definition of done for the public beta are in the
-[product roadmap](docs/product-roadmap.md). Notable changes are recorded in
-[CHANGELOG.md](CHANGELOG.md). Store copy, permission justifications and the release
-checklist are in the [Chrome Web Store brief](internal-docs/chrome-web-store.md).
+Development setup and required checks are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Current priorities are in the [product roadmap](docs/product-roadmap.md), and shipped
+changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Current status
 
-Version 0.2 is a commercial-grade community preview under active development. The
-security boundaries and core browser workflow are implemented and heavily tested;
-native installers, signed releases, scenario replay, compatibility metrics and team
-features remain roadmap work.
+Version 0.2 is under active development. The browser extension and Local Core are the
+primary product path.
 
 The previous automation-browser Workbench and original Selenium runner remain for
 compatibility but are deprecated. New product development targets the extension and
-local Core. See [docs/workbench.md](docs/workbench.md) if you still need the legacy
-workflow.
+Local Core.
 
 ## License
 

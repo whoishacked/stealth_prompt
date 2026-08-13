@@ -1,19 +1,4 @@
-"""Console entry point for Stealth Prompt.
-
-Two commands exist today:
-
-``doctor``
-    Report whether this machine can run a workbench session. Contacts nothing.
-
-``workbench``
-    Validate and describe a browser workbench session. Phase 1 stops before
-    launching Chromium; the broker and extension arrive in phase 2.
-
-Invoking the command with no arguments still prints the version and points at
-the legacy Selenium runner, which remains the supported path until its
-replacement is tested. The scenario-driven ``validate``/``run`` commands are
-tracked in ``internal-docs/migration-plan.md``.
-"""
+"""Console entry point for the Stealth Prompt Local Core and compatibility tools."""
 
 from __future__ import annotations
 
@@ -43,12 +28,11 @@ from .workbench.doctor import Environment, run_doctor
 from .workbench.runner import run_workbench
 
 LEGACY_RUNNER_HINT = (
-    "The scenario-driven commands are not implemented yet.\n"
-    "Run the legacy Selenium tester from a source checkout with:\n"
+    "Start the Local Core for the browser extension with:\n"
     "\n"
-    "    python main.py --config config.yaml\n"
+    "    stealth-prompt serve\n"
     "\n"
-    "See internal-docs/migration-plan.md for the milestone that adds `validate` and `run`."
+    "Or run `stealth-prompt demo` for the guided local test."
 )
 
 AUTHORIZATION_NOTICE = (

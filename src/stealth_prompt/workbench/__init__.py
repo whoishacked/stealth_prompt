@@ -1,14 +1,4 @@
-"""Browser workbench: an operator-driven prompt-injection testing session.
-
-The workbench launches an isolated Playwright Chromium against one authorized
-target, shows a small assistant dock, and lets an operator ask a local coding
-agent for payload text, review it, insert it, approve sending it, and capture
-the response.
-
-Phase 1 provides the typed configuration, the agent contract, and the browser
-operation allowlist. The broker, extension, and capture loop arrive in later
-phases; see ``internal-docs/migration-plan.md``.
-"""
+"""Deprecated CLI-launched browser workbench kept for compatibility."""
 
 from __future__ import annotations
 
