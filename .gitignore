@@ -53,6 +53,7 @@ htmlcov/
 site/
 .zensical/
 .venv-docs/
+internal-docs/
 
 # Prompt database
 successful_prompts.json
