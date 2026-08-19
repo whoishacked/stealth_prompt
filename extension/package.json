@@ -11,10 +11,10 @@
     "clean": "rm -rf dist dist-test"
   },
   "devDependencies": {
-    "@types/chrome": "0.0.287",
-    "@types/node": "22.10.2",
-    "esbuild": "0.24.2",
-    "typescript": "5.7.2"
+    "@types/chrome": "0.2.6",
+    "@types/node": "26.2.0",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
   },
   "allowScripts": {
     "esbuild@0.24.2": true
