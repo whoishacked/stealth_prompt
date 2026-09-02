@@ -5,6 +5,8 @@ focused on authorized testing of selected AI interactions in a real browser sess
 
 ## Current priorities
 
+- validate and extend the shipped FrameFuzz template pack with reproducible,
+  authorization-safe fixtures and published compatibility results;
 - improve element detection and response capture across common chat interfaces;
 - make long-running tests faster, resumable, and easier to recover after provider or
   page failures;
@@ -20,6 +22,14 @@ focused on authorized testing of selected AI interactions in a real browser sess
 - recorded multi-step flows for complex authenticated applications;
 - regression runs and CI-friendly report formats;
 - optional collaboration features that preserve local-first deployment.
+
+## Recently shipped
+
+- FrameFuzz matched framing campaigns with versioned templates, per-case fresh-context
+  gates, Core and Direct execution, reproducible ordering, differential conclusions,
+  report comparison, scenario schema v3, and vulnerable/safe local controls;
+- reviewed local learning, frozen evaluation, promotion gates, and signed strategy
+  packs without automatic cloud ingestion.
 
 ## Principles
 

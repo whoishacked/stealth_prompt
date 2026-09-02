@@ -43,8 +43,14 @@ because the target returns a synthetic canary matched by a deterministic scorer.
     Add `?mode=advanced` to the demo URL. The canary requires two different turns.
     Use `?mode=safe` as the negative control.
 
+!!! tip "Try FrameFuzz"
+    Enable **Compare framing variants** and add `?mode=framing` to the demo URL. Each
+    case requires a fresh target conversation and explicit reset confirmation. Repeat
+    against `?mode=safe`, then compare both reports. See [FrameFuzz](framefuzz.md).
+
 ## Next steps
 
 - [Connect Claude CLI, Codex CLI, Ollama, OpenAI, or Anthropic](connections.md).
 - [Choose an objective, mode, and response trigger](testing.md).
 - [Understand verdicts and exported evidence](reports.md).
+- [Run matched framing experiments](framefuzz.md).

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stealth Prompt",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Browser-native AI red-team assistant for authorized, targeted testing of one selected AI interaction.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "storage", "scripting", "activeTab"],

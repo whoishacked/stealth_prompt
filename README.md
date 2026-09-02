@@ -26,6 +26,9 @@ scanner.
   the extension when zero local setup matters more than credential isolation.
 - **Evidence, not vibes.** A model assessment can identify a potential issue, but a
   confirmed finding requires a deterministic check or explicit operator verification.
+- **Matched framing experiments.** FrameFuzz compares one normalized unsafe outcome
+  across clean, explicit, and framed conditions with fresh-context gates and a
+  reproducible, versioned template pack.
 - **Reviewed local learning.** An eligible Core report can be reduced to a sanitized
   strategy digest, inspected, edited, scoped to one target, accepted, or rejected.
   Nothing enters the private strategy library automatically.
@@ -95,6 +98,12 @@ stealth-prompt demo
 For a stateful adaptive test, add `?mode=advanced` to the printed demo URL. It
 requires two different turns before the synthetic canary can be disclosed;
 `?mode=safe` is the negative control.
+
+For a matched framing experiment, enable **Compare framing variants** and open the
+target with `?mode=framing`. FrameFuzz runs clean, explicit, and selected framed cases
+through separate fresh conversations; the same `?mode=safe` target is its negative
+control. Read the [FrameFuzz method and limitations](docs/framefuzz.md) before using its
+campaign conclusions.
 
 You never type an attack string — the first payload is generated from the
 objective you chose. The run ends `confirmed` because the demo disclosed the
@@ -177,7 +186,7 @@ changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Current status
 
-Version 0.2 is under active development. The browser extension and Local Core are the
+Version 0.3 is under active development. The browser extension and Local Core are the
 primary product path.
 
 The previous automation-browser Workbench and original Selenium runner remain for

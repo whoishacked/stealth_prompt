@@ -31,6 +31,10 @@ support SLA.
 - The Core binds to loopback only and requires an origin-bound pairing token.
 - Page mutations are restricted to a closed operation allowlist.
 - A model verdict alone cannot create a confirmed finding.
+- FrameFuzz uses a closed local template pack, rejects secret-shaped labels and unsafe
+  destination URLs, and adds no page operation. Every case requires a fresh-context
+  acknowledgement plus read-only binding validation; unverified isolation cannot
+  produce a confirmed framing-gap conclusion.
 
 See [docs/extension.md](docs/extension.md) for the full threat model and data flow.
 

@@ -149,6 +149,10 @@ provide CLI providers, deterministic scorers, scenario replay, or the Core's
 self-contained HTML evidence report. Use Core mode when those assessment controls
 matter.
 
+Both paths expose [FrameFuzz](framefuzz.md) for compatible disclosure objectives. Its
+payloads come from a closed local template pack, not the selected provider. Core can
+apply deterministic scorers; Direct conclusions stay capped at potential.
+
 Useful flags:
 
 | Flag | Meaning |
@@ -469,6 +473,9 @@ A scenario carries the schema version, name and description, objective,
 provider *kind* and requested model, mode and limits, sharing policy, target
 origin, potential-finding policy, the reviewed binding, and the deterministic
 scorer configuration.
+
+Schema version 3 also records optional FrameFuzz configuration. Versions 1 and 2 remain
+readable with FrameFuzz disabled. See the [scenario schema reference](scenarios.md).
 
 It never carries credentials, cookies, storage, headers, tokens, or captured
 responses. The parser **refuses** a credential-shaped field rather than dropping

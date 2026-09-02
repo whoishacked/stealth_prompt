@@ -51,6 +51,14 @@ ingestion service.
 The extension does not intentionally read cookies, passwords, target access tokens,
 `localStorage`, or `sessionStorage`.
 
+FrameFuzz template generation is local and deterministic. Its protected-value field is
+a label, not a value; credential-shaped labels are rejected. The trusted destination
+is inert payload data and is never fetched by Stealth Prompt. Executable schemes, URL
+credentials, credential query fields, fragments, and control characters are refused.
+Each case reuses the existing page-operation allowlist and requires a read-only binding
+validation; FrameFuzz adds no navigation, click, reset, cookie, or network-observation
+capability.
+
 ## Canonical policies
 
 - [Privacy policy](https://github.com/whoishacked/stealth_prompt/blob/main/PRIVACY.md)

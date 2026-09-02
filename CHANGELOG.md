@@ -4,8 +4,19 @@ All notable changes are documented here. The project follows Semantic Versioning
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-02
+
 ### Added
 
+- FrameFuzz matched framing experiments for compatible indirect-injection and
+  disclosure objectives, using one normalized semantic seed and a closed, versioned
+  template pack across clean, explicit, integrity-signature, required-configuration,
+  and trusted-destination cases.
+- Per-case fresh-conversation gates, read-only binding revalidation, case-scoped Auto
+  authorization, deterministic Core conclusions, potential-capped Direct conclusions,
+  reproducible ordering, and matched-comparison views in JSON, HTML, and the extension.
+- Scenario schema v3 with fail-closed FrameFuzz configuration, backward-compatible
+  v1/v2 imports with the feature disabled, and framing-sensitive/safe local demo modes.
 - Versioned `local-v1` train/held-out benchmark and frozen, report-backed evaluation
   comparing built-in and learned routing with snapshot provenance, deterministic ASR,
   transfer, routing, pivot, cost, latency, digest-quality, and safe-control metrics.

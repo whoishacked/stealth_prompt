@@ -74,6 +74,11 @@ Direct reports can be reviewed and exported in the extension, but they are not l
 inputs and never mutate a paired Core. Reports shows a quiet link to the Core setup when
 you want the private, revisioned library.
 
+FrameFuzz is available on both paths. Core can evaluate cases with deterministic
+scorers and can therefore reach a confirmed framing-gap conclusion. Direct API uses
+the same local deterministic templates and fresh-context gates, but its conclusion is
+capped at potential because its evaluator is a model. See [FrameFuzz](framefuzz.md).
+
 ## Data sharing
 
 The selected policy controls whether captured target responses reach the provider:

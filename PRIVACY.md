@@ -47,6 +47,12 @@ Importing a scenario grants no authority: it never restores automatic-send
 authorization, and replay still requires current host permission and a fresh
 validation of the binding against the live page.
 
+Schema version 3 can include FrameFuzz strategy selection, template version, a
+descriptive protected-value label, a test-only destination, case order, and random
+seed. It never includes case responses or results. The label must not contain an actual
+secret. The destination is stored as configuration and rendered as inert payload text;
+Stealth Prompt does not connect to it.
+
 ### Sharing policy
 
 The selected sharing policy determines whether target responses reach an AI provider:
@@ -58,6 +64,11 @@ The selected sharing policy determines whether target responses reach an AI prov
 Claude, Codex and OpenAI may be external services depending on the operator's own
 configuration and provider agreement. Ollama is restricted to loopback. Stealth
 Prompt does not change provider retention policies.
+
+FrameFuzz template generation does not call a provider. During evaluation, target
+responses follow the same sharing policy as any other run. In Core mode, `none` can be
+used with local deterministic scorers. Direct API requires provider-visible evaluation
+and caps its campaign conclusion at potential.
 
 Direct API mode contacts only the fixed `https://api.openai.com` or
 `https://api.anthropic.com` origin selected by the operator. Chrome requests that host
