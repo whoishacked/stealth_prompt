@@ -2054,7 +2054,7 @@ class TestWorkspaceFlow:
         base.update(settings)
         await panel.evaluate(
             """([settings, origin]) => chrome.storage.local.set({ 'sp.local': {
-                version: 2,
+                version: 5,
                 settings,
                 binding: { origin,
                            input: { strategy: 'css', value: '#message' },
@@ -2200,6 +2200,155 @@ class TestWorkspaceFlow:
         # Setup controls are gone from the screen, not merely scrolled away.
         assert seen["hasCorePort"] is False
         assert "Session" not in seen["body"] or "turn" in seen["body"]
+
+    @pytest.mark.parametrize(
+        ("target_mode", "expected_conclusion"),
+        [
+            ("framing", "confirmed_framing_gap"),
+            ("safe", "no_gap_observed"),
+        ],
+    )
+    def test_framefuzz_campaign_in_real_chromium(
+        self,
+        target: Any,
+        tmp_path: Path,
+        target_mode: str,
+        expected_conclusion: str,
+    ) -> None:
+        """Positive and negative controls both cross every fresh-context gate."""
+
+        async def scenario() -> dict[str, Any]:
+            results = tmp_path / "results"
+            core = CoreServer(
+                port=0,
+                artifacts_root=results,
+                oracle_patterns=(r"SP_CANARY_[A-Z0-9]{12}",),
+            )
+            await core.start()
+            code = core.pairing.start_pairing()
+            playwright, context, extension_id = await launch(
+                tmp_path, core.bound_port, granted=True
+            )
+            try:
+                port = target.server_address[1]
+                url = f"http://127.0.0.1:{port}/?mode={target_mode}"
+                page = await context.new_page()
+                await page.goto(url)
+                await page.wait_for_selector("#message")
+
+                panel = await self._open(context, extension_id)
+                await self._seed(
+                    panel,
+                    port,
+                    mode="auto",
+                    sharing="none",
+                    maxTurns=5,
+                    potentialFindingAction="continue",
+                    frameFuzz={
+                        "enabled": True,
+                        "framedStrategies": [
+                            "integrity_signature",
+                            "required_config",
+                            "trusted_destination",
+                        ],
+                        "protectedValueLabel": "synthetic canary",
+                        "safeDestination": "https://audit.example.invalid/collect",
+                        "randomizeOrder": False,
+                        "randomSeed": "browser-e2e-seed",
+                    },
+                )
+                await self._connect(panel, core, code)
+                await page.bring_to_front()
+                await panel.evaluate(
+                    """() => chrome.runtime.sendMessage(
+                        { channel: 'sp-panel', kind: 'bind-tab' })"""
+                )
+                await panel.click("#readiness button.primary")
+                await panel.wait_for_selector("#framefuzz-campaign", timeout=20000)
+
+                for completed in range(1, 6):
+                    if completed > 1:
+                        await page.goto(url)
+                        await page.wait_for_selector("#message")
+                        await page.bring_to_front()
+                        await panel.evaluate(
+                            """() => chrome.runtime.sendMessage(
+                                { channel: 'sp-panel', kind: 'bind-tab' })"""
+                        )
+                    await panel.get_by_text(
+                        "Confirm reset & run this case", exact=True
+                    ).click()
+                    if completed < 5:
+                        await panel.wait_for_function(
+                            """(count) => document.querySelector('#framefuzz-campaign')
+                                ?.textContent?.includes(`${count} of 5 complete`)""",
+                            arg=completed,
+                            timeout=30000,
+                        )
+                        if completed == 1:
+                            # Recreating the Side Panel must revoke send
+                            # authorization and recover only at the next
+                            # explicit context gate.
+                            await panel.reload()
+                            await panel.wait_for_selector(
+                                "#framefuzz-campaign", timeout=20000
+                            )
+                            assert "Fresh target context required" in (
+                                await panel.text_content("#framefuzz-campaign")
+                            )
+                    else:
+                        await panel.wait_for_function(
+                            """() => document.getElementById('workspace')
+                                ?.dataset.workspace === 'reports'""",
+                            timeout=30000,
+                        )
+
+                body = await panel.text_content("#workspace")
+                await panel.wait_for_selector("#report-library", timeout=15000)
+                await panel.get_by_text("View results", exact=True).click()
+                await panel.wait_for_selector("text=Report results", timeout=15000)
+                report_body = await panel.text_content("#workspace")
+                report_path = next(results.glob("assistant-*/session.json"))
+                report = json.loads(report_path.read_text())
+                return {
+                    "workspace": await self._workspace(panel),
+                    "body": body,
+                    "report_body": report_body,
+                    "campaign": report["framefuzz"],
+                    "effects": list(target.framefuzz_effects),
+                }
+            finally:
+                await context.close()
+                await playwright.stop()
+                await core.stop()
+
+        seen = asyncio.run(scenario())
+        campaign = seen["campaign"]
+        assert seen["workspace"] == "reports"
+        assert campaign["conclusion"] == expected_conclusion
+        assert campaign["completed_cases"] == 5
+        assert all(case["context_isolation"] == "verified" for case in campaign["cases"])
+        outcomes = {case["strategy"]: case["outcome"] for case in campaign["cases"]}
+        assert outcomes["clean_control"] == "not_observed"
+        assert outcomes["explicit"] == "not_observed"
+        framed_outcome = "confirmed" if target_mode == "framing" else "not_observed"
+        assert outcomes["integrity_signature"] == framed_outcome
+        assert outcomes["required_config"] == framed_outcome
+        assert outcomes["trusted_destination"] == framed_outcome
+        assert expected_conclusion.replace("_", " ") in seen["body"].lower()
+        assert "FrameFuzz comparison" in seen["report_body"]
+        assert expected_conclusion.replace("_", " ") in seen["report_body"].lower()
+        expected_effects = (
+            [
+                {
+                    "strategy": "trusted_destination",
+                    "destination": "https://audit.example.invalid/collect",
+                }
+            ]
+            if target_mode == "framing"
+            else []
+        )
+        assert seen["effects"] == expected_effects
 
     def test_connection_actions_share_a_row_with_their_fields(self, tmp_path: Path) -> None:
         """Port/Connect and code/Pair keep one consistent control rhythm."""

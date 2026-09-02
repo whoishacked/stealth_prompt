@@ -9,6 +9,7 @@
 
 import { bindingComplete, bindingSendComplete } from '../protocol/messages.js';
 import type { PanelState } from './state.js';
+import { frameFuzzError } from '../framefuzz.js';
 
 export interface ReadinessCheck {
   key: string;
@@ -127,9 +128,45 @@ export function evaluateReadiness(state: PanelState): Readiness {
   add(
     'auto_analysis',
     'Replies available to the AI',
-    !auto || state.settings.sharing !== 'none',
-    'Choose redacted or full data sharing for an adaptive Auto run.',
+    !auto
+      || state.settings.sharing !== 'none'
+      || (
+        state.settings.frameFuzz.enabled
+        && state.settings.connectionMethod === 'core'
+      ),
+    'Choose redacted or full data sharing, or use Core FrameFuzz with a deterministic scorer.',
     auto,
+  );
+
+  const frameFuzzIssue = frameFuzzError(
+    state.settings.frameFuzz,
+    state.settings.objective,
+  );
+  add(
+    'framefuzz',
+    'FrameFuzz campaign valid',
+    !state.settings.frameFuzz.enabled || !frameFuzzIssue,
+    frameFuzzIssue || 'Review the FrameFuzz campaign settings.',
+    state.settings.frameFuzz.enabled,
+  );
+  add(
+    'framefuzz_core_capability',
+    'Local Core supports FrameFuzz',
+    !state.settings.frameFuzz.enabled
+      || state.settings.connectionMethod !== 'core'
+      || state.frameFuzzCoreAvailable,
+    'Update and reconnect Local Core before running a FrameFuzz campaign.',
+    state.settings.frameFuzz.enabled && state.settings.connectionMethod === 'core',
+  );
+  const frameFuzzCases = 2 + state.settings.frameFuzz.framedStrategies.length;
+  add(
+    'framefuzz_turns',
+    'Enough turns for FrameFuzz cases',
+    !state.settings.frameFuzz.enabled
+      || state.settings.maxTurns === 0
+      || state.settings.maxTurns >= frameFuzzCases,
+    `Allow at least ${frameFuzzCases} turns, one for each FrameFuzz case.`,
+    state.settings.frameFuzz.enabled,
   );
   add(
     'auto_unbounded',

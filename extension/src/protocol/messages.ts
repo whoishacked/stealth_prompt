@@ -35,6 +35,7 @@ export type CoreRequestType =
   | 'response.manual'
   | 'auto.start'
   | 'finding.confirm'
+  | 'framefuzz.context_confirm'
   | 'session.export'
   | 'scenario.export'
   | 'scenario.preview'
@@ -74,6 +75,7 @@ export const CORE_RESPONSE_TYPES = [
   'evaluation.pending',
   'evaluation',
   'auto.started',
+  'framefuzz.ready',
   'exported',
   'scenario.exported',
   'scenario.preview',
@@ -422,6 +424,7 @@ export interface StoredReport {
   mode: string;
   potentialFindingAction: string;
   turns: StoredReportTurn[];
+  frameFuzz: Record<string, unknown> | null;
 }
 
 export interface LearningEligibility {
@@ -594,6 +597,7 @@ export function parseStoredReport(value: unknown): StoredReport | null {
         priorAttemptTurnId: boundedLine(proposal['prior_attempt_turn_id'], 120),
       };
     }),
+    frameFuzz: boundedLearningObject(document_['framefuzz']),
   };
 }
 

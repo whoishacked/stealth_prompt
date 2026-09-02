@@ -82,6 +82,27 @@ import {
   saveDirectReport,
 } from '../storage/direct-reports.js';
 import type { DirectReport } from '../storage/direct-reports.js';
+import {
+  DEFAULT_SAFE_DESTINATION,
+  FRAMEFUZZ_COMPATIBLE_OBJECTIVES,
+  FRAMEFUZZ_DESCRIPTIONS,
+  FRAMEFUZZ_LABELS,
+  FRAMED_STRATEGIES,
+  completeDirectFrameFuzzCase,
+  createDirectFrameFuzzCampaign,
+  directFrameFuzzProposal,
+  frameFuzzConfiguration,
+  frameFuzzError,
+  newRandomSeed,
+  openDirectFrameFuzzCase,
+  protectedLabelError,
+  destinationError,
+  verifyDirectFrameFuzzCase,
+} from '../framefuzz.js';
+import type {
+  DirectFrameFuzzCampaign,
+  FrameFuzzStrategy,
+} from '../framefuzz.js';
 
 const TOKEN_KEY = 'sp.token';
 
@@ -103,6 +124,7 @@ let directReportCreatedAt = 0;
 let directSentPayloads: string[] = [];
 let directTurns: StoredReport['turns'] = [];
 let directConfirmedEvaluation: Evaluation | null = null;
+let directFrameFuzzCampaign: DirectFrameFuzzCampaign | null = null;
 let directRequestId = '';
 let recoverAfterCancel = false;
 let noticeMessage = '';
@@ -1077,7 +1099,166 @@ function renderMode(root: HTMLElement): void {
     node.appendChild(custom);
   }
 
+  renderFrameFuzzControls(node);
+
   root.appendChild(node);
+}
+
+function updateFrameFuzz(patch: Partial<typeof state.settings.frameFuzz>): void {
+  dispatch({
+    type: 'settings',
+    patch: { frameFuzz: { ...state.settings.frameFuzz, ...patch } },
+  });
+}
+
+function renderFrameFuzzControls(root: HTMLElement): void {
+  const objectiveCompatible = FRAMEFUZZ_COMPATIBLE_OBJECTIVES.has(state.settings.objective);
+  const coreCompatible = state.settings.connectionMethod !== 'core' || state.frameFuzzCoreAvailable;
+  const compatible = objectiveCompatible && coreCompatible;
+  const details = el('details', 'settings-group framefuzz-config') as HTMLDetailsElement;
+  details.open = state.settings.frameFuzz.enabled;
+  const summary = el('summary');
+  const title = el('span');
+  title.appendChild(el('strong', '', 'Compare framing variants'));
+  title.appendChild(el('small', '', 'FrameFuzz matched experiment'));
+  summary.appendChild(title);
+  summary.appendChild(
+    el('span', '', state.settings.frameFuzz.enabled ? 'enabled' : compatible ? 'off' : 'unavailable'),
+  );
+  details.appendChild(summary);
+  details.appendChild(
+    el(
+      'div',
+      'note',
+      'Compares one semantic intent across fixed framings; it does not generate extra random attacks.',
+    ),
+  );
+  if (!compatible) {
+    details.appendChild(
+      el(
+        'div',
+        'note warn',
+        !objectiveCompatible
+          ? 'Available only for Indirect prompt injection, Instruction disclosure, and Sensitive data disclosure.'
+          : 'Update and reconnect Local Core to enable FrameFuzz. Direct API mode is supported without Core.',
+      ),
+    );
+    root.appendChild(details);
+    return;
+  }
+
+  details.appendChild(
+    settingToggle(
+      'Enable FrameFuzz',
+      'Run clean and explicit controls plus selected framed variants.',
+      state.settings.frameFuzz.enabled,
+      (checked) => updateFrameFuzz({
+        enabled: checked,
+        randomSeed: checked
+          ? state.settings.frameFuzz.randomSeed || newRandomSeed()
+          : state.settings.frameFuzz.randomSeed,
+      }),
+    ),
+  );
+  if (!state.settings.frameFuzz.enabled) {
+    root.appendChild(details);
+    return;
+  }
+
+  const cases = el('div', 'framefuzz-cases');
+  for (const strategy of ['clean_control', 'explicit'] as const) {
+    const row = el('div', 'framefuzz-case mandatory');
+    row.appendChild(el('span', 'case-check', '✓'));
+    const copy = el('span');
+    copy.appendChild(el('strong', '', FRAMEFUZZ_LABELS[strategy]));
+    copy.appendChild(el('small', '', `${FRAMEFUZZ_DESCRIPTIONS[strategy]} Required.`));
+    row.appendChild(copy);
+    cases.appendChild(row);
+  }
+  for (const strategy of FRAMED_STRATEGIES) {
+    const label = el('label', 'framefuzz-case');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = state.settings.frameFuzz.framedStrategies.includes(strategy);
+    input.setAttribute('aria-label', `Include ${FRAMEFUZZ_LABELS[strategy]}`);
+    input.onchange = () => {
+      const selected = input.checked
+        ? [...state.settings.frameFuzz.framedStrategies, strategy]
+        : state.settings.frameFuzz.framedStrategies.filter((item) => item !== strategy);
+      updateFrameFuzz({ framedStrategies: [...new Set(selected)] });
+    };
+    label.appendChild(input);
+    const copy = el('span');
+    copy.appendChild(el('strong', '', FRAMEFUZZ_LABELS[strategy]));
+    copy.appendChild(el('small', '', FRAMEFUZZ_DESCRIPTIONS[strategy]));
+    label.appendChild(copy);
+    cases.appendChild(label);
+  }
+  details.appendChild(cases);
+
+  details.appendChild(el('label', '', 'Protected value label'));
+  const protectedLabel = document.createElement('input');
+  protectedLabel.type = 'text';
+  protectedLabel.maxLength = 80;
+  protectedLabel.value = state.settings.frameFuzz.protectedValueLabel;
+  protectedLabel.placeholder = 'synthetic canary';
+  protectedLabel.setAttribute('aria-describedby', 'framefuzz-label-help');
+  protectedLabel.onchange = () => updateFrameFuzz({ protectedValueLabel: protectedLabel.value });
+  details.appendChild(protectedLabel);
+  const labelHelp = el(
+    'div',
+    `note ${protectedLabelError(state.settings.frameFuzz.protectedValueLabel) ? 'bad' : ''}`,
+    protectedLabelError(state.settings.frameFuzz.protectedValueLabel)
+      || 'A descriptive label only. Never paste the actual canary or secret.',
+  );
+  labelHelp.id = 'framefuzz-label-help';
+  labelHelp.setAttribute('aria-live', 'polite');
+  details.appendChild(labelHelp);
+
+  if (state.settings.frameFuzz.framedStrategies.includes('trusted_destination')) {
+    details.appendChild(el('label', '', 'Safe mock destination'));
+    const destination = document.createElement('input');
+    destination.type = 'url';
+    destination.maxLength = 300;
+    destination.value = state.settings.frameFuzz.safeDestination || DEFAULT_SAFE_DESTINATION;
+    destination.setAttribute('aria-describedby', 'framefuzz-destination-help');
+    destination.onchange = () => updateFrameFuzz({ safeDestination: destination.value });
+    details.appendChild(destination);
+    const destinationHelp = el(
+      'div',
+      `note ${destinationError(state.settings.frameFuzz.safeDestination) ? 'bad' : ''}`,
+      destinationError(state.settings.frameFuzz.safeDestination)
+        || 'Included as payload text only. Stealth Prompt never connects to this URL.',
+    );
+    destinationHelp.id = 'framefuzz-destination-help';
+    destinationHelp.setAttribute('aria-live', 'polite');
+    details.appendChild(destinationHelp);
+  }
+
+  details.appendChild(
+    settingToggle(
+      'Randomize case order',
+      'Uses a locally generated seed; the exact order and seed are exported.',
+      state.settings.frameFuzz.randomizeOrder,
+      (checked) => updateFrameFuzz({ randomizeOrder: checked }),
+    ),
+  );
+  const total = 2 + state.settings.frameFuzz.framedStrategies.length;
+  details.appendChild(el('div', 'note', `${total} cases · template pack framefuzz-core v1`));
+  details.appendChild(
+    el(
+      'div',
+      'note warn',
+      'Every case requires a fresh target conversation, explicit reset confirmation, and read-only binding revalidation.',
+    ),
+  );
+  const issue = frameFuzzError(state.settings.frameFuzz, state.settings.objective);
+  if (issue) {
+    const message = el('div', 'note bad', issue);
+    message.setAttribute('role', 'alert');
+    details.appendChild(message);
+  }
+  root.appendChild(details);
 }
 
 function renderSettings(root: HTMLElement): void {
@@ -1664,10 +1845,28 @@ function confirmDirectFinding(): void {
     evaluation: directConfirmedEvaluation,
   });
   dispatch({ type: 'session', session: { verdict: 'confirmed' } });
+  if (directFrameFuzzCampaign) {
+    const turnId = directTurns.at(-1)?.turnId ?? '';
+    directFrameFuzzCampaign = verifyDirectFrameFuzzCase(
+      directFrameFuzzCampaign,
+      turnId,
+    );
+    dispatch({ type: 'framefuzz', campaign: directFrameFuzzCampaign });
+  }
   void saveDirectReportSnapshot();
 }
 
 function resumeAuto(confirmFinding: boolean): void {
+  if (state.frameFuzzCampaign) {
+    if (state.settings.connectionMethod === 'direct') {
+      if (confirmFinding) confirmDirectFinding();
+    } else if (confirmFinding) {
+      send('finding.confirm', { continue: true });
+    }
+    dispatch({ type: 'auto_stopped', reason: 'framefuzz_context_reset' });
+    uiDispatch({ type: 'follow_state' });
+    return;
+  }
   const proposal = state.proposal;
   if (state.settings.connectionMethod === 'direct') {
     if (confirmFinding) confirmDirectFinding();
@@ -1735,6 +1934,7 @@ function directReportDocument(): Record<string, unknown> {
     })),
     verdict: state.verdict,
     confirmed_finding: directConfirmedEvaluation,
+    framefuzz: directFrameFuzzCampaign,
     timeline: state.timeline,
   };
 }
@@ -1930,6 +2130,20 @@ function applyScenario(): void {
   const document_ = scenarioDocument;
   if (!document_) return;
   const limits = (document_['limits'] ?? {}) as Record<string, unknown>;
+  const frameFuzz = (
+    typeof document_['framefuzz'] === 'object'
+    && document_['framefuzz'] !== null
+    && !Array.isArray(document_['framefuzz'])
+      ? document_['framefuzz']
+      : { enabled: false }
+  ) as Record<string, unknown>;
+  const scenarioStrategies = Array.isArray(frameFuzz['strategies'])
+    ? frameFuzz['strategies'].filter(
+        (item): item is FrameFuzzStrategy =>
+          typeof item === 'string'
+          && FRAMED_STRATEGIES.includes(item as FrameFuzzStrategy),
+      )
+    : state.settings.frameFuzz.framedStrategies;
   dispatch({
     type: 'settings',
     patch: {
@@ -1950,6 +2164,18 @@ function applyScenario(): void {
         1800,
         state.settings.maxDurationSeconds,
       ),
+      frameFuzz: {
+        enabled: frameFuzz['enabled'] === true,
+        framedStrategies: scenarioStrategies,
+        protectedValueLabel: String(
+          frameFuzz['protected_value_label'] ?? state.settings.frameFuzz.protectedValueLabel,
+        ).slice(0, 80),
+        safeDestination: String(
+          frameFuzz['safe_destination'] ?? state.settings.frameFuzz.safeDestination,
+        ).slice(0, 300),
+        randomizeOrder: frameFuzz['case_order'] !== 'fixed',
+        randomSeed: String(frameFuzz['random_seed'] ?? '').slice(0, 64),
+      },
     },
   });
 
@@ -2198,11 +2424,109 @@ function renderLiveTest(root: HTMLElement): void {
   renderSessionHeader(root);
   renderAlert(root, 'global');
   renderNotice(root);
+  const waitingForFrameFuzzContext = renderFrameFuzzCampaign(root);
   renderBindingBanner(root);
-  renderProposal(root);
+  if (!waitingForFrameFuzzContext) renderProposal(root);
   renderAlert(root, 'test');
-  renderManualTrigger(root);
+  if (!waitingForFrameFuzzContext) renderManualTrigger(root);
   renderTimeline(root);
+}
+
+/** Render campaign progress and the mandatory fresh-conversation boundary. */
+function renderFrameFuzzCampaign(root: HTMLElement): boolean {
+  const campaign = state.frameFuzzCampaign;
+  if (!campaign) return false;
+  const node = section('FrameFuzz campaign');
+  node.id = 'framefuzz-campaign';
+  const current = campaign.currentCase;
+  const progress = document.createElement('progress');
+  progress.max = Math.max(1, campaign.totalCases);
+  progress.value = campaign.completedCases;
+  progress.setAttribute(
+    'aria-label',
+    `${campaign.completedCases} of ${campaign.totalCases} FrameFuzz cases complete`,
+  );
+  node.appendChild(progress);
+  node.appendChild(
+    el(
+      'div',
+      'note',
+      `${campaign.completedCases} of ${campaign.totalCases} complete · ${campaign.templatePack} v${campaign.templateVersion}`,
+    ),
+  );
+  if (current) {
+    node.appendChild(
+      el('h3', 'sub', `Case ${current.ordinal} of ${campaign.totalCases} · ${current.strategyLabel}`),
+    );
+    node.appendChild(el('div', 'note', FRAMEFUZZ_DESCRIPTIONS[current.strategy]));
+    node.appendChild(
+      el(
+        'div',
+        'note',
+        `Context: ${current.contextIsolation} · binding: ${current.bindingValidation}`,
+      ),
+    );
+  }
+  if (campaign.status === 'complete') {
+    node.appendChild(
+      el('div', 'note ok', `Campaign conclusion: ${campaign.conclusion.replaceAll('_', ' ')}`),
+    );
+    for (const warning of campaign.warnings) node.appendChild(el('div', 'note warn', warning));
+    root.appendChild(node);
+    return false;
+  }
+  if (campaign.status === 'awaiting_context') {
+    const gate = el('div', 'framefuzz-gate');
+    gate.setAttribute('role', 'status');
+    gate.setAttribute('aria-live', 'polite');
+    if (state.settings.connectionMethod === 'direct' && !directFrameFuzzCampaign) {
+      gate.appendChild(el('strong', '', 'Campaign paused after panel reload'));
+      gate.appendChild(
+        el(
+          'div',
+          'note',
+          'Direct API credentials and response context are session-only. Restart to create a clean matched campaign; no send authorization survived the reload.',
+        ),
+      );
+      const restart = el('button', 'primary', 'Restart from Setup') as HTMLButtonElement;
+      restart.onclick = () => {
+        dispatch({ type: 'framefuzz', campaign: null });
+        dispatch({ type: 'session_ended', reason: 'direct campaign reloaded' });
+        navigate('setup');
+      };
+      gate.appendChild(restart);
+      node.appendChild(gate);
+      root.appendChild(node);
+      return true;
+    }
+    gate.appendChild(el('strong', '', 'Fresh target context required'));
+    const steps = el('ol', 'plain');
+    for (const instruction of [
+      'Open a new conversation or fresh workspace in the target.',
+      'Return here and confirm the reset.',
+      'Stealth Prompt will re-check the origin and saved interaction binding.',
+      'Only this case will then be authorized.',
+    ]) steps.appendChild(el('li', '', instruction));
+    gate.appendChild(steps);
+    const actions = el('div', 'row');
+    const confirm = el(
+      'button',
+      'primary',
+      state.settings.mode === 'auto' ? 'Confirm reset & run this case' : 'Confirm reset & prepare case',
+    ) as HTMLButtonElement;
+    confirm.onclick = () => void confirmFrameFuzzContext(true);
+    actions.appendChild(confirm);
+    const unverified = el('button', '', 'Continue as unverified') as HTMLButtonElement;
+    unverified.title = 'The result cannot become a confirmed framing gap.';
+    unverified.onclick = () => void confirmFrameFuzzContext(false);
+    actions.appendChild(unverified);
+    gate.appendChild(actions);
+    node.appendChild(gate);
+    root.appendChild(node);
+    return true;
+  }
+  root.appendChild(node);
+  return false;
 }
 
 /**
@@ -2273,6 +2597,18 @@ function renderRunSummary(root: HTMLElement): void {
   const verdict = state.verdict;
   const tone = verdict === 'confirmed' ? 'bad' : verdict === 'potential' ? 'warn' : 'ok';
   node.appendChild(el('div', `note ${tone}`, `Verdict: ${verdict.replaceAll('_', ' ')}`));
+  if (state.frameFuzzCampaign) {
+    node.appendChild(
+      el(
+        'div',
+        'note',
+        `FrameFuzz: ${state.frameFuzzCampaign.conclusion.replaceAll('_', ' ')}`,
+      ),
+    );
+    for (const warning of state.frameFuzzCampaign.warnings) {
+      node.appendChild(el('div', 'note warn', warning));
+    }
+  }
   if (state.autoStopReason && state.autoStopReason !== 'potential_review') {
     node.appendChild(el('div', 'note', `Ended: ${state.autoStopReason.replaceAll('_', ' ')}`));
   }
@@ -2547,6 +2883,7 @@ function renderStoredReport(root: HTMLElement): void {
     overview.appendChild(item);
   }
   root.appendChild(overview);
+  renderStoredFrameFuzz(root, report.frameFuzz);
   renderStrategyLearning(root);
 
   const turns = section(`Test turns (${report.turns.length})`);
@@ -2663,6 +3000,65 @@ function renderStoredReport(root: HTMLElement): void {
   }
   downloads.appendChild(actions);
   root.appendChild(downloads);
+}
+
+function renderStoredFrameFuzz(
+  root: HTMLElement,
+  value: Record<string, unknown> | null,
+): void {
+  if (!value || typeof value['campaign_id'] !== 'string') return;
+  const node = section('FrameFuzz comparison');
+  const conclusion = String(value['conclusion'] ?? 'inconclusive');
+  node.appendChild(
+    el('div', 'note', `Campaign verdict: ${conclusion.replaceAll('_', ' ')}`),
+  );
+  const meta = el('div', 'evidence-grid');
+  for (const [label, raw] of [
+    ['Template', `${String(value['template_pack'] ?? '')} v${String(value['template_version'] ?? '')}`],
+    ['Seed', String(value['random_seed'] ?? '')],
+    ['Semantic hash', String(value['semantic_seed_hash'] ?? '')],
+  ]) {
+    const metric = el('div', 'evidence-metric');
+    metric.appendChild(el('span', '', label));
+    metric.appendChild(el('strong', '', raw));
+    meta.appendChild(metric);
+  }
+  node.appendChild(meta);
+  const rawCases = Array.isArray(value['cases']) ? value['cases'].slice(0, 5) : [];
+  const table = el('div', 'framefuzz-results');
+  for (const item of rawCases) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const row = el('div', 'framefuzz-result');
+    row.appendChild(
+      el(
+        'strong',
+        '',
+        `${String(record['ordinal'] ?? '')}. ${String(record['strategy_label'] ?? record['strategy'] ?? '')}`,
+      ),
+    );
+    row.appendChild(
+      el(
+        'span',
+        '',
+        `${String(record['template_id'] ?? 'unknown template')} ${record['template_intact'] === false ? '(edited)' : '(intact)'} · ${String(record['outcome'] ?? 'pending').replaceAll('_', ' ')} · evidence ${record['scorer_ran'] === true ? 'ran' : 'not run'} · isolation ${String(record['context_isolation'] ?? 'unknown')}`,
+      ),
+    );
+    table.appendChild(row);
+  }
+  node.appendChild(table);
+  const warnings = Array.isArray(value['warnings']) ? value['warnings'].slice(0, 10) : [];
+  for (const warning of warnings) {
+    if (typeof warning === 'string') node.appendChild(el('div', 'note warn', warning.slice(0, 500)));
+  }
+  node.appendChild(
+    el(
+      'div',
+      'note faint',
+      'No gap observed means only that this bounded comparison did not observe one; it does not prove the target secure.',
+    ),
+  );
+  root.appendChild(node);
 }
 
 function renderStrategyLearning(root: HTMLElement): void {
@@ -3110,6 +3506,13 @@ function handleFrame(frame: ReturnType<typeof parseCoreFrame>): void {
         ? (payload['objectives'] as ObjectiveSpec[])
         : [];
       dispatch({ type: 'providers', providers: payload['providers'] ?? [] });
+      dispatch({
+        type: 'framefuzz_capability',
+        available:
+          typeof payload['framefuzz'] === 'object'
+          && payload['framefuzz'] !== null
+          && (payload['framefuzz'] as Record<string, unknown>)['available'] === true,
+      });
       break;
     case 'providers.health':
       dispatch({ type: 'health', health: payload['providers'] ?? [] });
@@ -3127,6 +3530,17 @@ function handleFrame(frame: ReturnType<typeof parseCoreFrame>): void {
     case 'session.bound':
     case 'session.status':
       dispatch({ type: 'session', session: payload['session'] ?? {} });
+      if (payload['framefuzz']) dispatch({ type: 'framefuzz', campaign: payload['framefuzz'] });
+      if (payload['auto_stopped']) {
+        dispatch({ type: 'auto_stopped', reason: String(payload['auto_stopped']) });
+        uiDispatch({ type: 'follow_state' });
+      }
+      break;
+    case 'framefuzz.ready':
+      if (payload['session']) dispatch({ type: 'session', session: payload['session'] });
+      dispatch({ type: 'auto_stopped', reason: '' });
+      if (state.settings.mode === 'auto') send('auto.start', {});
+      else requestProposal();
       break;
     case 'proposal.pending':
       dispatch({ type: 'stage', stage: 'generating', at: Date.now() });
@@ -3162,6 +3576,7 @@ function handleFrame(frame: ReturnType<typeof parseCoreFrame>): void {
     case 'evaluation':
       stopStageTicker();
       if (payload['session']) dispatch({ type: 'session', session: payload['session'] });
+      if (payload['framefuzz']) dispatch({ type: 'framefuzz', campaign: payload['framefuzz'] });
       dispatch({
         type: 'latency',
         milliseconds: Number(payload['elapsed_ms'] ?? 0),
@@ -3580,6 +3995,10 @@ function configurePayload(): Record<string, unknown> {
     custom_objective: state.settings.customObjective,
     learning_enabled: state.settings.learningEnabled,
     use_private_strategies: state.settings.usePrivateStrategies,
+    framefuzz: frameFuzzConfiguration(
+      state.settings.frameFuzz,
+      state.settings.objective,
+    ),
   };
 }
 
@@ -3656,6 +4075,15 @@ async function requestDirectProposal(automatic = false): Promise<void> {
   startStageTicker();
   const started = performance.now();
   try {
+    if (directFrameFuzzCampaign) {
+      const proposal = directFrameFuzzProposal(directFrameFuzzCampaign);
+      stopStageTicker();
+      dispatch({ type: 'latency', milliseconds: performance.now() - started, label: 'Rendered' });
+      dispatch({ type: 'proposal', proposal });
+      dispatch({ type: 'timeline', entry: { at: Date.now(), kind: 'framefuzz.case_prepared', detail: '' } });
+      if (automatic && state.autoRunning) await performDirectSend(proposal.payload);
+      return;
+    }
     const context = directContext();
     const route = directStrategyRoute(context);
     if (!route.plannerStrategies.length) {
@@ -3764,6 +4192,45 @@ async function finishDirectAuto(reason: string): Promise<void> {
   uiDispatch({ type: 'follow_state' });
 }
 
+async function completeDirectFrameFuzz(
+  turn: StoredReport['turns'][number],
+  evaluation: Evaluation,
+): Promise<boolean> {
+  if (!directFrameFuzzCampaign) return false;
+  directFrameFuzzCampaign = completeDirectFrameFuzzCase(
+    directFrameFuzzCampaign,
+    evaluation,
+    turn.turnId,
+    turn.payload,
+  );
+  dispatch({ type: 'framefuzz', campaign: directFrameFuzzCampaign });
+  await saveDirectReportSnapshot();
+  if (
+    state.settings.mode === 'auto'
+    && evaluation.verdict === 'potential'
+    && state.settings.potentialFindingAction === 'review'
+  ) {
+    dispatch({ type: 'auto_stopped', reason: 'potential_review' });
+    uiDispatch({ type: 'follow_state' });
+    return true;
+  }
+  if (
+    state.settings.mode === 'auto'
+    && evaluation.verdict === 'potential'
+    && state.settings.potentialFindingAction === 'stop'
+  ) {
+    await finishDirectAuto('potential_found');
+    return true;
+  }
+  if (directFrameFuzzCampaign.status === 'complete') {
+    await finishDirectAuto('framefuzz_complete');
+  } else {
+    dispatch({ type: 'auto_stopped', reason: 'framefuzz_context_reset' });
+    uiDispatch({ type: 'follow_state' });
+  }
+  return true;
+}
+
 async function analyzeDirectResponse(response: string): Promise<void> {
   const reportTurn = directTurnForResponse(response);
   void saveDirectReportSnapshot();
@@ -3774,13 +4241,16 @@ async function analyzeDirectResponse(response: string): Promise<void> {
     stopStageTicker();
     const evaluation = unsharedEvaluation();
     applyDirectEvaluation(reportTurn, evaluation, 'local only');
-    await saveDirectReportSnapshot();
+    if (!(await completeDirectFrameFuzz(reportTurn, evaluation))) {
+      await saveDirectReportSnapshot();
+    }
     return;
   }
   const started = performance.now();
   try {
     const context = directContext(true);
-    const combined = state.settings.mode === 'guided' || state.settings.mode === 'auto';
+    const combined = !directFrameFuzzCampaign
+      && (state.settings.mode === 'guided' || state.settings.mode === 'auto');
     const route = combined ? directStrategyRoute(context, true) : undefined;
     if (route && !route.plannerStrategies.length) {
       throw new Error('No compatible active strategy remains for this run.');
@@ -3807,7 +4277,9 @@ async function analyzeDirectResponse(response: string): Promise<void> {
     if (!combined) {
       const evaluation = parsed as Evaluation;
       applyDirectEvaluation(reportTurn, evaluation);
-      await saveDirectReportSnapshot();
+      if (!(await completeDirectFrameFuzz(reportTurn, evaluation))) {
+        await saveDirectReportSnapshot();
+      }
       return;
     }
     const decision = parsed as { evaluation: Evaluation; proposal: Proposal };
@@ -3877,6 +4349,12 @@ async function startTest(): Promise<void> {
     directSentPayloads = [];
     directTurns = [];
     directConfirmedEvaluation = null;
+    directFrameFuzzCampaign = state.settings.frameFuzz.enabled
+      ? await createDirectFrameFuzzCampaign(
+          state.settings.frameFuzz,
+          state.settings.objective,
+        )
+      : null;
     dispatch({
       type: 'session',
       session: {
@@ -3885,14 +4363,20 @@ async function startTest(): Promise<void> {
         max_turns: state.settings.maxTurns,
         verdict: 'inconclusive',
         effective_model: state.settings.requestedModel,
+        framefuzz: directFrameFuzzCampaign,
       },
     });
     dispatch({ type: 'session_started' });
     // Direct mode runs without the Core, but the workspace flow is identical.
     uiDispatch({ type: 'follow_state' });
     dispatch({ type: 'timeline', entry: { at: Date.now(), kind: 'session.started', detail: 'direct API' } });
-    if (state.settings.mode === 'auto') dispatch({ type: 'auto_started' });
-    await requestDirectProposal(state.settings.mode === 'auto');
+    if (directFrameFuzzCampaign) {
+      dispatch({ type: 'framefuzz', campaign: directFrameFuzzCampaign });
+      setNotice('Open a fresh target conversation, then confirm the first FrameFuzz case.');
+    } else {
+      if (state.settings.mode === 'auto') dispatch({ type: 'auto_started' });
+      await requestDirectProposal(state.settings.mode === 'auto');
+    }
     return;
   }
   send('session.configure', configurePayload());
@@ -3910,12 +4394,42 @@ async function startTest(): Promise<void> {
   // WebSocket preserves frame order; a short delay lets the UI render the
   // configured state before the provider starts.
   setTimeout(() => {
+    if (state.settings.frameFuzz.enabled) {
+      setNotice('Open a fresh target conversation, then confirm the first FrameFuzz case.');
+      return;
+    }
     if (state.settings.mode === 'auto') {
       send('auto.start', { instruction: state.settings.advancedInstruction });
     } else {
       requestProposal();
     }
   }, 120);
+}
+
+async function confirmFrameFuzzContext(verified: boolean): Promise<void> {
+  if (!(await validateBinding())) {
+    navigate('setup');
+    return;
+  }
+  clearError('test');
+  if (state.settings.connectionMethod === 'direct') {
+    if (!directFrameFuzzCampaign) {
+      fail('The Direct API campaign is no longer in memory. Start a new campaign.', 'test');
+      return;
+    }
+    directFrameFuzzCampaign = openDirectFrameFuzzCase(directFrameFuzzCampaign, verified);
+    dispatch({ type: 'framefuzz', campaign: directFrameFuzzCampaign });
+    if (state.settings.mode === 'auto') dispatch({ type: 'auto_started' });
+    await requestDirectProposal(state.settings.mode === 'auto');
+    return;
+  }
+  send('session.bind', { binding: bindingToCore({ ...state.binding, origin: state.origin }) });
+  // WebSocket ordering guarantees the Core sees the successful binding before
+  // the explicit context confirmation.
+  send('framefuzz.context_confirm', {
+    verified,
+    binding_validated: true,
+  });
 }
 
 function continueAutoRun(addTurns: boolean): void {
