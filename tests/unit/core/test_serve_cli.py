@@ -58,6 +58,25 @@ def run_until_listening(args: argparse.Namespace) -> dict[str, Any]:
 
 
 class TestServe:
+    def test_strategy_database_path_is_configurable(self, tmp_path: Path) -> None:
+        path = tmp_path / "private" / "library.sqlite3"
+
+        args = serve_args(tmp_path, strategy_db=path)
+
+        assert args.strategy_db == str(path)
+
+    def test_unusable_strategy_database_is_a_configuration_error(
+        self, tmp_path: Path
+    ) -> None:
+        args = serve_args(tmp_path, strategy_db=tmp_path)
+        out, err = io.StringIO(), io.StringIO()
+
+        code = run_serve_command(args, out=out, err=err)
+
+        assert code == int(ExitCode.CONFIG_ERROR)
+        assert "private strategy library" in err.getvalue()
+        assert out.getvalue() == ""
+
     def test_prints_a_pairing_code_and_exits_cleanly(self, tmp_path: Path) -> None:
         seen = run_until_listening(serve_args(tmp_path, port=0))
 
@@ -211,7 +230,9 @@ class TestDemoCommand:
         assert "demo" in help_text
         assert "start the local demo target and the Core together" in help_text
 
-    def test_it_starts_both_and_prints_the_first_success_path(self) -> None:
+    def test_it_starts_both_and_prints_the_first_success_path(
+        self, tmp_path: Path
+    ) -> None:
         """One command, and every step the operator needs is on screen."""
         out, err = io.StringIO(), io.StringIO()
 
@@ -220,7 +241,19 @@ class TestDemoCommand:
         with mock.patch(
             "asyncio.Event.wait", side_effect=KeyboardInterrupt
         ):
-            code = main(["demo", "--port", "0", "--target-port", "0"], stdout=out, stderr=err)
+            code = main(
+                [
+                    "demo",
+                    "--port",
+                    "0",
+                    "--target-port",
+                    "0",
+                    "--strategy-db",
+                    str(tmp_path / "strategies.sqlite3"),
+                ],
+                stdout=out,
+                stderr=err,
+            )
 
         assert code == 0
         text = out.getvalue()
@@ -238,12 +271,24 @@ class TestDemoCommand:
         assert "Demo stopped." in text
         assert err.getvalue() == ""
 
-    def test_it_never_opens_a_browser(self) -> None:
+    def test_it_never_opens_a_browser(self, tmp_path: Path) -> None:
         out, err = io.StringIO(), io.StringIO()
         with mock.patch("webbrowser.open") as opened, mock.patch(
             "asyncio.Event.wait", side_effect=KeyboardInterrupt
         ):
-            main(["demo", "--port", "0", "--target-port", "0"], stdout=out, stderr=err)
+            main(
+                [
+                    "demo",
+                    "--port",
+                    "0",
+                    "--target-port",
+                    "0",
+                    "--strategy-db",
+                    str(tmp_path / "strategies.sqlite3"),
+                ],
+                stdout=out,
+                stderr=err,
+            )
         opened.assert_not_called()
 
     def test_the_demo_canary_is_matched_literally(self) -> None:

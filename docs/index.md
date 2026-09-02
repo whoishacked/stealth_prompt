@@ -66,3 +66,5 @@ data-sharing policy, and autonomy limits.
 2. [Choose Local Core or Direct API](connections.md).
 3. [Bind the target interaction and run a test](testing.md).
 4. [Review and export the evidence](reports.md).
+5. [Evaluate and share reviewed strategies](evaluation-and-sharing.md), if you maintain
+   a Core library.

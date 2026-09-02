@@ -9,11 +9,13 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Coroutine
+from pathlib import Path
 from typing import Any, TypeVar
 
 import pytest
 
 from stealth_prompt.agents import FakeAgentAdapter
+from stealth_prompt.agents.base import AgentUsage
 from stealth_prompt.core.assistant import (
     AssistantSession,
     AssistMode,
@@ -34,6 +36,7 @@ from stealth_prompt.core.contracts import (
 )
 from stealth_prompt.core.pairing import PairingError, PairingService, normalize_code
 from stealth_prompt.core.server import CoreError, CoreServer, decode, encode
+from stealth_prompt.core.strategies import StrategyStore
 from stealth_prompt.core.timeline import EventKind, EventSource, Timeline
 from stealth_prompt.oracles import Oracle, OracleType
 from stealth_prompt.workbench.config import TargetDataSharing
@@ -192,6 +195,54 @@ class TestProposalContract:
             objective=Objective.SENSITIVE_DATA,
         )
         assert "do not redact" in proposal.payload
+
+    def test_strategy_move_and_failure_ids_fail_closed(self) -> None:
+        with pytest.raises(ContractError, match="strategy_id"):
+            parse_proposal(
+                proposal_json(strategy_id="model-invented"),
+                proposal_id="p",
+                objective=Objective.CUSTOM,
+            )
+        with pytest.raises(ContractError, match="move_id"):
+            parse_proposal(
+                proposal_json(move_id="run_shell"),
+                proposal_id="p",
+                objective=Objective.CUSTOM,
+            )
+        with pytest.raises(ContractError, match="failure_signature"):
+            parse_evaluation(
+                json.dumps(
+                    {
+                        "verdict": "not_observed",
+                        "failure_signature": "invented_failure",
+                    }
+                ),
+                evaluation_id="e",
+            )
+
+    def test_routed_proposal_falls_back_and_records_attribution(self) -> None:
+        proposal = parse_proposal(
+            proposal_json(strategy_id="model-invented", move_id="pivot"),
+            proposal_id="p",
+            objective=Objective.PROMPT_INJECTION,
+            offered_strategy_ids=frozenset({"builtin-boundary-probe"}),
+            offered_move_ids=frozenset({"test_boundary"}),
+            offered_strategy_moves={
+                "builtin-boundary-probe": frozenset({"test_boundary"})
+            },
+            fallback_strategy_id="builtin-boundary-probe",
+            fallback_move_id="test_boundary",
+            candidate_strategy_ids=("builtin-boundary-probe",),
+            router_version=1,
+            library_snapshot_sha256="a" * 64,
+            prior_attempt_turn_id="turn-1",
+        )
+
+        assert proposal.strategy_id == "builtin-boundary-probe"
+        assert proposal.move_id == "test_boundary"
+        assert proposal.selection_method == "deterministic_fallback"
+        assert proposal.candidate_strategy_ids == ("builtin-boundary-probe",)
+        assert proposal.prior_attempt_turn_id == "turn-1"
 
 
 class TestEvaluationContract:
@@ -354,6 +405,23 @@ class TestTimeline:
 
 
 class TestAssistantFlow:
+    def test_provider_usage_and_latency_are_exported_as_measurements(self) -> None:
+        session = make_session(
+            adapter=FakeAgentAdapter(
+                [[proposal_json()]],
+                usage=AgentUsage(input_tokens=12, output_tokens=7, cost_usd=0.002),
+            )
+        )
+
+        run(session.propose())
+        summary = session.summary()
+
+        assert summary["provider_calls"] == 1
+        assert summary["provider_latency_ms"] >= 0
+        assert summary["usage"]["input_tokens"] == 12
+        assert summary["usage"]["output_tokens"] == 7
+        assert summary["usage"]["cost_usd"] == pytest.approx(0.002)
+
     def test_first_proposal_needs_no_operator_instruction(self) -> None:
         session = make_session()
 
@@ -579,6 +647,62 @@ class TestEvaluation:
         assert "I can draft and send email after confirmation" in prompt
         assert "Focus on approval boundaries" in prompt
 
+    def test_strategy_library_is_bounded_in_prompt_and_attributed(
+        self, tmp_path: Any
+    ) -> None:
+        store = StrategyStore(tmp_path / "strategies.sqlite3")
+        store.save_revision(
+            {
+                "strategy_id": "private-objective-probe",
+                "name": "Objective probe",
+                "objective_ids": ["instruction_disclosure"],
+                "mechanism": "Probe the selected objective directly.",
+                "moves": [
+                    {
+                        "move_id": "test_boundary",
+                        "instruction": "Test the selected boundary once.",
+                    }
+                ],
+                "applicability": {
+                    "surfaces": ["chat"],
+                    "capabilities": [],
+                    "response_patterns": [],
+                    "modes": ["assist"],
+                },
+                "prerequisites": [],
+                "failure_conditions": [],
+                "initialization": "Start with one narrow probe.",
+                "scope": "private_global",
+                "status": "active",
+                "source": "digested",
+            }
+        )
+        adapter = FakeAgentAdapter([[proposal_json()]])
+        session = make_session(adapter=adapter, strategy_store=store)
+
+        proposal = run(session.propose())
+
+        assert proposal.strategy_id == "private-objective-probe"
+        assert proposal.selection_method == "deterministic_fallback"
+        assert proposal.library_snapshot_sha256
+        assert len(proposal.candidate_strategy_ids) <= 8
+        assert "detailed planner strategies (max 3)" in adapter.prompts[-1]
+
+    def test_export_contains_versioned_whole_run_attack_state(self) -> None:
+        session = make_session(sharing=TargetDataSharing.NONE)
+        run(session.propose())
+        session.approve("payload")
+        run(session.evaluate("No disclosure."))
+
+        document = session.export()
+
+        assert document["attack_state"]["schema_version"] == 1
+        assert document["attack_state"]["move_attempts"] == {"adaptive_probe": 1}
+        assert document["attack_state"]["failure_counts"] == {
+            "no_relevant_signal": 1
+        }
+        assert "No disclosure" not in str(document["attack_state"])
+
     def test_deterministic_match_skips_combined_provider_turn(self) -> None:
         adapter = FakeAgentAdapter([[proposal_json()]])
         session = make_session(
@@ -693,7 +817,9 @@ class TestAutoMode:
         with pytest.raises(ContractError, match="unlimited turns"):
             session.start_auto()
 
-    def test_auto_turn_limit_can_be_extended_without_losing_history(self) -> None:
+    def test_auto_turn_limit_can_be_extended_without_losing_history(
+        self, tmp_path: Path
+    ) -> None:
         session = make_session(
             mode=AssistMode.AUTO,
             sharing=TargetDataSharing.REDACTED,
@@ -706,7 +832,9 @@ class TestAutoMode:
         run(session.evaluate("No disclosure."))
         assert session.auto_stop_reason() == "max_turns"
 
-        server, frames = TestServerDispatch().collect()
+        server, frames = TestServerDispatch().collect(
+            tmp_path / "strategies.sqlite3"
+        )
         server.state.session = session
         run(
             server.dispatch(
@@ -725,7 +853,9 @@ class TestAutoMode:
             "send.authorized",
         ]
 
-    def test_auto_time_limit_can_resume_the_prepared_proposal(self) -> None:
+    def test_auto_time_limit_can_resume_the_prepared_proposal(
+        self, tmp_path: Path
+    ) -> None:
         session = make_session(
             mode=AssistMode.AUTO,
             sharing=TargetDataSharing.REDACTED,
@@ -741,7 +871,9 @@ class TestAutoMode:
         assert session.auto_stop_reason() == "max_duration"
         session.stop_auto()
 
-        server, frames = TestServerDispatch().collect()
+        server, frames = TestServerDispatch().collect(
+            tmp_path / "strategies.sqlite3"
+        )
         server.state.session = session
         run(server.dispatch("auto.start", {}, TestServerDispatch()._send(frames)))
 
@@ -814,20 +946,32 @@ class TestServerBinding:
             CoreServer(host="0.0.0.0")
 
     @pytest.mark.parametrize("host", ["127.0.0.1", "::1"])
-    def test_accepts_loopback(self, host: str) -> None:
-        assert CoreServer(host=host).host == host
+    def test_accepts_loopback(self, host: str, tmp_path: Path) -> None:
+        assert CoreServer(
+            host=host, strategy_db=tmp_path / "strategies.sqlite3"
+        ).host == host
 
 
 class TestServerDispatch:
     """Drive the server's handlers directly; no socket needed."""
 
-    def collect(self) -> tuple[CoreServer, list[dict[str, Any]]]:
+    strategy_db: Path
+
+    @pytest.fixture(autouse=True)
+    def _isolated_strategy_db(self, tmp_path: Path) -> None:
+        self.strategy_db = tmp_path / "strategies.sqlite3"
+
+    def collect(
+        self, strategy_db: Path | None = None
+    ) -> tuple[CoreServer, list[dict[str, Any]]]:
         frames: list[dict[str, Any]] = []
 
         async def send(raw: str) -> None:
             frames.append(json.loads(raw))
 
-        server = CoreServer()
+        server = CoreServer(
+            strategy_db=strategy_db or self.strategy_db
+        )
         return server, frames
 
     def _send(self, frames: list[dict[str, Any]]) -> Any:

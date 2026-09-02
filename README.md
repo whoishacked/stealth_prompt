@@ -26,6 +26,13 @@ scanner.
   the extension when zero local setup matters more than credential isolation.
 - **Evidence, not vibes.** A model assessment can identify a potential issue, but a
   confirmed finding requires a deterministic check or explicit operator verification.
+- **Reviewed local learning.** An eligible Core report can be reduced to a sanitized
+  strategy digest, inspected, edited, scoped to one target, accepted, or rejected.
+  Nothing enters the private strategy library automatically.
+- **Measured promotion.** A frozen local benchmark compares the reviewed library with
+  the built-in baseline and blocks promotion on incomplete provenance or unsafe controls.
+- **Explicit sharing.** Teams can exchange Ed25519-signed, report-free strategy packs;
+  import always requires preview and an explicitly trusted publisher fingerprint.
 - **Local-first privacy.** Stealth Prompt has no required product account. Core mode
   keeps credentials outside Chrome; optional direct mode keeps a supplied key only in
   the open panel's memory. Target replies follow an explicit none/redacted/full policy.
@@ -105,6 +112,16 @@ their results in the extension, with separate HTML and JSON downloads. Direct
 API mode keeps up to 50 reports in this Chrome profile through IndexedDB and
 also supports explicit JSON downloads. These local reports may contain target
 responses and can be viewed or deleted from Reports.
+
+When **Offer this run for reviewed learning** was enabled before a Core run,
+an eligible report also offers **Analyze for learning**. The preview shows the exact
+sanitized object sent to the report's provider, the proposed routing change, and
+before/after strategy documents. Only an explicit Accept, Edit, or Keep target-specific
+action mutates the local library. Direct API reports remain read-only and never copy
+data into Core.
+
+Library maintainers can follow the [evaluation and sharing workflow](docs/evaluation-and-sharing.md)
+for frozen baseline comparison, promotion gates, and signed team/community packs.
 
 Read the [documentation](https://whoishacked.com/stealth_prompt/) for installation,
 provider setup, modes, reports, permissions, verdicts and troubleshooting. The Markdown

@@ -156,6 +156,7 @@ Useful flags:
 | `--port` | Port to listen on (default `17371`; `0` picks a free one). Set the same value in the panel, next to **Connect** |
 | `--host` | `127.0.0.1` or `::1`. Nothing else is accepted |
 | `--artifacts-dir` | Where evidence is written |
+| `--strategy-db` | Private strategy library (default `.stealth-prompt/strategies.sqlite3`) |
 | `--expect-regex` | A deterministic check; repeatable. See [Verdicts](#verdicts) |
 
 ---
@@ -540,6 +541,35 @@ keeps up to 50 bounded reports in IndexedDB belonging to this Chrome profile.
 Reports opens their payloads, selected target responses and evaluations in the same
 safe text-only viewer, and provides JSON download and per-report deletion. The API
 key is never included. Removing the extension removes this browser-local history.
+
+Each proposal also records how it was planned: the bounded candidate strategy IDs,
+selected strategy and move, deterministic or model-reranked selection, router version,
+catalogue/library snapshot hash, and prior attempt used for a pivot. Core HTML reports
+show the same provenance. These fields are planning metadata, not target content.
+
+### Reviewed strategy learning
+
+Core learning is disabled by default and is chosen per run in **Settings → Local
+learning**. If **Offer this run for reviewed learning** was enabled, an eligible Core
+report offers **Analyze for learning** in Reports. Old reports and Direct API reports are
+never ingested automatically.
+
+Eligibility requires a sent payload, a non-manual page capture, a complete binding and a
+confirmed, potential, or valid-miss evaluation without infrastructure errors. A
+potential result can record an attempt, but it never becomes a successful strategy
+outcome. Credential-shaped content makes the report ineligible.
+
+Analysis uses the source report's provider and model, but receives only the exact
+sanitized object displayed in the preview. It does not receive the raw response, raw
+payload, target origin or identity values. The preview names the proposed action
+(`reinforce`, `widen`, `create`, `limit`, or `no_change`), scope, reason, routing effect,
+and before/after documents.
+
+Nothing is saved until the operator chooses **Accept**, **Edit**, or **Keep
+target-specific**. Core owns the strategy ID, objective and scope even for an edited
+document, then writes the revision, abstract experience and audit event atomically.
+**Reject** records only the audit decision. Re-applying an accepted report is
+idempotent. Direct API reports show only a connection hint and cannot mutate Core.
 
 ## What the extension stores, and what it never stores
 

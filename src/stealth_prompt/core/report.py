@@ -33,6 +33,12 @@ def _code(value: object, *, empty: str = "Not retained") -> str:
     return f'<pre class="evidence">{rendered}</pre>'
 
 
+def _counts(value: object) -> str:
+    if not isinstance(value, dict) or not value:
+        return '<p class="muted">None recorded</p>'
+    return _list([f"{key}: {count}" for key, count in sorted(value.items())])
+
+
 #: Status wording that keeps "we checked and found nothing" separate from "we
 #: never checked". Collapsing the two would overstate a `not_detected` verdict.
 _SCORER_STATUS = {
@@ -90,6 +96,8 @@ def render_report(document: dict[str, Any]) -> str:
     events = timeline.get("events", []) if isinstance(timeline, dict) else []
     if not isinstance(events, list):
         events = []
+    attack_state = document.get("attack_state")
+    attack_state = attack_state if isinstance(attack_state, dict) else {}
 
     verdict = str(document.get("verdict", "inconclusive"))
     verdict_class = {
@@ -115,7 +123,16 @@ def render_report(document: dict[str, Any]) -> str:
               <dl class="facts compact">
                 <div><dt>Goal</dt><dd>{_text(proposal.get("goal"))}</dd></div>
                 <div><dt>Tactic</dt><dd>{_text(proposal.get("tactic"))}</dd></div>
+                <div><dt>Strategy</dt><dd>{_label(proposal.get("strategy_id") or "cold_start")}</dd></div>
+                <div><dt>Move</dt><dd>{_label(proposal.get("move_id") or "adaptive_probe")}</dd></div>
+                <div><dt>Selection</dt><dd>{_label(proposal.get("selection_method") or "legacy_static")}</dd></div>
+                <div><dt>Router version</dt><dd>{_text(proposal.get("router_version"), fallback="—")}</dd></div>
+                <div><dt>Candidate strategies</dt><dd>{_text(", ".join(proposal.get("candidate_strategy_ids", [])) if isinstance(proposal.get("candidate_strategy_ids"), list) else "")}</dd></div>
+                <div><dt>Library snapshot</dt><dd class="hash">{_text(proposal.get("library_snapshot_sha256"))}</dd></div>
+                <div><dt>Prior attempt</dt><dd>{_text(proposal.get("prior_attempt_turn_id"))}</dd></div>
                 <div><dt>Hypothesis</dt><dd>{_text(proposal.get("hypothesis"))}</dd></div>
+                <div><dt>Pivot reason</dt><dd>{_text(proposal.get("pivot_reason"))}</dd></div>
+                <div><dt>Failure signature</dt><dd>{_label(evaluation.get("failure_signature"))}</dd></div>
                 <div><dt>Risk</dt><dd>{_label(proposal.get("risk"))}</dd></div>
                 <div><dt>Approved</dt><dd>{"Yes" if turn.get("approved") else "No"}</dd></div>
                 <div><dt>Deterministic</dt><dd>{"Yes" if evaluation.get("deterministic") else "No"}</dd></div>
@@ -214,6 +231,20 @@ def render_report(document: dict[str, Any]) -> str:
   <section class="verdict">
     <div><h2>Assessment outcome</h2><p class="muted">A confirmed result requires deterministic evidence or explicit operator verification.</p></div>
     <span class="badge {verdict_class}">{_label(verdict)}</span>
+  </section>
+  <section>
+    <h2>Whole-run attack state</h2>
+    <dl class="facts">
+      <div><dt>State schema</dt><dd>{_text(attack_state.get("schema_version"))}</dd></div>
+      <div><dt>Current strategy</dt><dd>{_label(attack_state.get("current_strategy_id"))}</dd></div>
+      <div><dt>Current move</dt><dd>{_label(attack_state.get("current_move_id"))}</dd></div>
+      <div><dt>Refusal streak</dt><dd>{_text(attack_state.get("refusal_streak"), fallback="0")}</dd></div>
+      <div><dt>Repetition streak</dt><dd>{_text(attack_state.get("repetition_streak"), fallback="0")}</dd></div>
+    </dl>
+    <div class="columns">
+      <div><h4>Moves attempted</h4>{_counts(attack_state.get("move_attempts"))}</div>
+      <div><h4>Failure signatures</h4>{_counts(attack_state.get("failure_counts"))}</div>
+    </div>
   </section>
   <section>
     <h2>Scope and configuration</h2>

@@ -6,6 +6,45 @@ All notable changes are documented here. The project follows Semantic Versioning
 
 ### Added
 
+- Versioned `local-v1` train/held-out benchmark and frozen, report-backed evaluation
+  comparing built-in and learned routing with snapshot provenance, deterministic ASR,
+  transfer, routing, pivot, cost, latency, digest-quality, and safe-control metrics.
+- Fixed promotion gates requiring the evaluated active revision, held-out deterministic
+  attribution, zero safe-control confirmations, documented failure conditions, and two
+  independently evidenced operator-accepted confirmations.
+- File-only Ed25519-signed team and community strategy packs with publisher fingerprints,
+  strict preview/trust gates, private-global-only community scope, and k-bounded aggregate
+  effectiveness counts. Packs never contain reports or captured target evidence.
+- Review-gated local learning for eligible Core reports. Reports can preview the exact
+  sanitized digest input and proposed `reinforce`, `widen`, `create`, `limit`, or
+  `no_change` action, then Accept, Edit, Keep target-specific, or Reject it.
+- Atomic, idempotent digest application with immutable strategy revisions, bounded
+  abstract experiences, audit-only rejection, and deterministic routing feedback.
+- Learning privacy controls that omit raw responses, raw payloads, origins and identity
+  values; credential-shaped evidence fails eligibility instead of entering a digest.
+- Core-only learning controls in Settings and Reports, with a read-only Direct API
+  boundary and an optional path back to Local Core.
+- Core-owned private strategy library backed by SQLite with immutable revisions,
+  active/disabled state, rollback, owner-only files, deterministic snapshots, and a
+  preview-token-gated import flow. Imports reject unknown fields, credential-shaped
+  values, browser operations and reserved built-in IDs before any transaction begins.
+- A versioned read-only seed strategy catalogue, strategy-library capability frames,
+  a configurable `--strategy-db` path, and a corresponding `doctor` check.
+- Deterministic strategy routing with objective, scope, surface, mode, capability,
+  response-pattern, and exhausted-move filters. The planner sees at most three bounded
+  summaries from eight candidates, may rerank only the offered IDs, and falls back to
+  the deterministic top choice. Direct API uses the same bounded flow with the shipped
+  read-only catalogue.
+- Auditable routing attribution in JSON and HTML reports: candidate IDs, selected
+  strategy/move, router version, library snapshot hash, selection method, and the prior
+  attempt that caused a pivot.
+- Versioned whole-run attack state for Core and Direct API assessments. Planning now
+  retains bounded structural outcomes across up to 100 turns while keeping only the
+  latest two shared turns in full, instead of forgetting everything before turn three.
+- Closed strategy, move, failure-signature and pivot attribution in proposals,
+  in-product results, JSON exports and self-contained HTML reports. Provider-invented
+  identifiers fail closed, and exact repeated replies are detected by hash without
+  copying the target response into structural memory.
 - Side Panel information architecture and visual system.
 - Persistent external-provider and browser-held credential warnings without blocking consent checkboxes.
 - Expanded AI-agent security objective catalogue.

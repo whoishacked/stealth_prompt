@@ -63,6 +63,7 @@ package-dir = {"" = "src"}
 # The extension is rendered per session from these templates, so they must
 # ship inside the wheel.
 "stealth_prompt.workbench" = ["extension/*.js", "extension/*.tmpl"]
+"stealth_prompt.core" = ["benchmarks/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

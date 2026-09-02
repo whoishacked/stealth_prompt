@@ -265,6 +265,51 @@ button.danger:hover:not(:disabled) { background: var(--danger-soft); border-colo
 .limit-row button.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 .scope-note { display: flex; gap: 7px; align-items: flex-start; margin-top: 9px; color: var(--muted); font-size: 11px; }
 .scope-note::before { color: var(--success); content: "●"; }
+.scope-note a { color: #c5beff; }
+.settings-group { margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
+.settings-group > summary {
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text);
+  font-size: 12px;
+}
+.settings-group > summary span { color: var(--muted); font-size: 11px; }
+.setting-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-top: var(--s3);
+  color: var(--text);
+}
+.setting-toggle > span { min-width: 0; }
+.setting-toggle strong, .setting-toggle small { display: block; }
+.setting-toggle small { margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.setting-toggle input {
+  width: 34px;
+  height: 19px;
+  flex: none;
+  appearance: none;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: #262c3b;
+  cursor: pointer;
+}
+.setting-toggle input::after {
+  display: block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--muted);
+  content: "";
+  transition: transform 120ms ease, background 120ms ease;
+}
+.setting-toggle input:checked { border-color: var(--accent); background: var(--accent-soft); }
+.setting-toggle input:checked::after { background: var(--accent); transform: translateX(15px); }
+.setting-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation-duration: 1.8s; }
   .proposal-card { transition: none; }
@@ -438,6 +483,9 @@ button[disabled] { cursor: not-allowed; opacity: 0.55; }
 .report-turn:last-child { border-bottom: 0; }
 .report-turn summary { cursor: pointer; color: var(--text); font-size: 12px; font-weight: 650; }
 .report-turn[open] summary { margin-bottom: var(--s3); }
+.learning-preview { margin-top: var(--s3); padding-left: var(--s3); border-left: 2px solid var(--accent); }
+.learning-json { max-height: 240px; overflow: auto; white-space: pre; font-size: 10px; }
+.learning-edit { min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
 
 .page-heading {
   display: flex;

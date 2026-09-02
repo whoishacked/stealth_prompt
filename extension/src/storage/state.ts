@@ -21,7 +21,7 @@
 import type { BindingSuggestion, InteractionBinding } from '../protocol/messages.js';
 import { emptyBinding } from '../protocol/messages.js';
 
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 
 export type ConnectionState =
   | 'disconnected'
@@ -104,6 +104,14 @@ export interface Proposal {
   provider: string;
   requested_model: string | null;
   effective_model: string | null;
+  strategy_id?: string;
+  move_id?: string;
+  pivot_reason?: string;
+  candidate_strategy_ids?: string[];
+  router_version?: number;
+  library_snapshot_sha256?: string;
+  selection_method?: string;
+  prior_attempt_turn_id?: string;
 }
 
 export interface Evaluation {
@@ -114,6 +122,7 @@ export interface Evaluation {
   evidence_ids: string[];
   suggested_next_steps: string[];
   deterministic: boolean;
+  failure_signature?: string | null;
 }
 
 export interface TimelineEntry {
@@ -139,6 +148,10 @@ export interface Settings {
   objective: string;
   customObjective: string;
   advancedInstruction: string;
+  /** A completed Core run may be offered for reviewed digesting. */
+  learningEnabled: boolean;
+  /** Routing may use active strategies already accepted into the private library. */
+  usePrivateStrategies: boolean;
 }
 
 /** The port `stealth-prompt serve` uses unless told otherwise. */
@@ -159,6 +172,8 @@ export function defaultSettings(): Settings {
     objective: 'instruction_disclosure',
     customObjective: '',
     advancedInstruction: '',
+    learningEnabled: false,
+    usePrivateStrategies: true,
   };
 }
 
@@ -616,7 +631,12 @@ export function restore(raw: unknown): PanelState {
   const base = initialState();
   if (typeof raw !== 'object' || raw === null) return base;
   const record = raw as Record<string, unknown>;
-  if (record['version'] !== STATE_VERSION && record['version'] !== 2 && record['version'] !== 1) {
+  if (
+    record['version'] !== STATE_VERSION
+    && record['version'] !== 3
+    && record['version'] !== 2
+    && record['version'] !== 1
+  ) {
     return base;
   }
 
@@ -652,7 +672,7 @@ export function restore(raw: unknown): PanelState {
                 ? storedSettings.potentialFindingAction
                 : 'review',
             maxDurationSeconds: coerceBoundedInt(
-              record['version'] === STATE_VERSION ? storedSettings.maxDurationSeconds : 0,
+              Number(record['version']) >= 3 ? storedSettings.maxDurationSeconds : 0,
               0,
               1800,
               base.settings.maxDurationSeconds,

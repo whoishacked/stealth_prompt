@@ -46,3 +46,10 @@ For every material turn, check:
 Treat reports as potentially sensitive. They may contain selected target responses and
 disclosed data. Keep them under the same retention and access policy as other penetration
 testing evidence.
+
+## Evaluation reports
+
+The Core CLI can reduce a complete matrix of stored session reports into a frozen
+strategy evaluation. Its JSON and script-free HTML contain aggregate measurements and
+snapshot hashes, not copied payloads or responses. Evaluation never reruns a target or
+provider. See [Evaluate and share strategies](evaluation-and-sharing.md).

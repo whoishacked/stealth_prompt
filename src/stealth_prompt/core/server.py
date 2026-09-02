@@ -52,8 +52,15 @@ from .contracts import (
     ProviderRefused,
     Verdict,
 )
+from .learning import (
+    DigestPreview,
+    LearningError,
+    inspect_report,
+    materialize_apply,
+    new_preview_token,
+)
 from .pairing import EXTENSION_ORIGIN_PATTERN, PairingError, PairingService
-from .reports import MAX_REPORTS, ReportError, list_reports, resolve_report
+from .reports import MAX_REPORTS, MAX_SESSION_BYTES, ReportError, list_reports, resolve_report
 from .scenario_file import (
     MAX_SCENARIO_BYTES,
     ScenarioError,
@@ -62,6 +69,7 @@ from .scenario_file import (
     scenario_from_session,
 )
 from .scenarios import objective_catalog
+from .strategies import StrategyError, StrategyStore
 from .timeline import EventKind, EventSource
 
 PROTOCOL_VERSION = 1
@@ -96,6 +104,17 @@ INBOUND = frozenset(
         "scenario.preview",
         "reports.list",
         "reports.open",
+        "learning.capabilities",
+        "learning.preview",
+        "learning.apply",
+        "learning.reject",
+        "strategies.list",
+        "strategies.open",
+        "strategies.set_status",
+        "strategies.rollback",
+        "strategies.export",
+        "strategies.import_preview",
+        "strategies.import_apply",
         "session.stop",
         "cancel",
         "ping",
@@ -103,7 +122,13 @@ INBOUND = frozenset(
 )
 
 LONG_RUNNING = frozenset(
-    {"proposal.request", "response.captured", "response.manual", "auto.start"}
+    {
+        "proposal.request",
+        "response.captured",
+        "response.manual",
+        "auto.start",
+        "learning.preview",
+    }
 )
 
 
@@ -191,12 +216,20 @@ def _bounded_int(
     return value
 
 
+def _boolean(payload: dict[str, Any], key: str, *, default: bool) -> bool:
+    value = payload.get(key, default)
+    if not isinstance(value, bool):
+        raise CoreError(f"field {key!r} must be a boolean")
+    return value
+
+
 @dataclass
 class CoreState:
     """Everything one paired client is working on."""
 
     session: AssistantSession | None = None
     artifacts_root: Path = field(default_factory=lambda: Path("results"))
+    strategies: StrategyStore | None = None
     oracle_patterns: tuple[str, ...] = ()
 
     def build_oracles(self) -> list[Oracle]:
@@ -220,6 +253,7 @@ class CoreServer:
         port: int = DEFAULT_PORT,
         pairing: PairingService | None = None,
         artifacts_root: Path | None = None,
+        strategy_db: Path | None = None,
         oracle_patterns: tuple[str, ...] = (),
         allowed_origin_pattern: Any = EXTENSION_ORIGIN_PATTERN,
     ) -> None:
@@ -230,8 +264,12 @@ class CoreServer:
         self.host = host
         self.port = port
         self.pairing = pairing or PairingService()
+        root = artifacts_root or Path("results")
         self.state = CoreState(
-            artifacts_root=artifacts_root or Path("results"),
+            artifacts_root=root,
+            strategies=StrategyStore(
+                strategy_db or root.parent / ".stealth-prompt" / "strategies.sqlite3"
+            ),
             oracle_patterns=oracle_patterns,
         )
         self._allowed_origin = allowed_origin_pattern
@@ -239,6 +277,8 @@ class CoreServer:
         self._bound_port: int | None = None
         self.rejected: list[str] = []
         self.accepted = 0
+        self._strategy_import_previews: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._strategy_digest_previews: dict[str, tuple[float, DigestPreview]] = {}
 
     # ------------------------------------------------------------- transport
 
@@ -442,6 +482,7 @@ class CoreServer:
                     "modes": [mode.value for mode in AssistMode],
                     "objectives": [objective.value for objective in Objective],
                     "sharing": [policy.value for policy in TargetDataSharing],
+                    "learning": self._strategy_store().capabilities(),
                 },
             )
         )
@@ -455,6 +496,7 @@ class CoreServer:
                 {
                     "providers": capability_report(),
                     "objectives": objective_catalog(),
+                    "learning": self._strategy_store().capabilities(),
                 },
             )
         )
@@ -529,6 +571,10 @@ class CoreServer:
             payload, "objective", limit=64, default=Objective.INSTRUCTION_DISCLOSURE.value
         )
         custom = _text(payload, "custom_objective", limit=1000)
+        learning_enabled = _boolean(payload, "learning_enabled", default=False)
+        use_private_strategies = _boolean(
+            payload, "use_private_strategies", default=True
+        )
 
         try:
             mode = AssistMode(mode_raw)
@@ -566,6 +612,9 @@ class CoreServer:
             store=store,
             max_turns=max_turns,
             max_duration_seconds=max_duration_seconds,
+            strategy_store=self._strategy_store(),
+            learning_enabled=learning_enabled,
+            use_private_strategies=use_private_strategies,
         )
         if previous is not None:
             # Carry the reviewed binding across a reconfiguration so the
@@ -975,6 +1024,17 @@ class CoreServer:
             raise CoreError(f"the report could not be read: {exc}", code="unknown_report") from None
         if len(content.encode("utf-8")) > MAX_FRAME_BYTES // 2:
             raise CoreError("the report is too large to open in the panel", code="too_large")
+        learning: dict[str, Any] | None = None
+        if artifact == "session.json":
+            try:
+                document = json.loads(content)
+            except json.JSONDecodeError:
+                document = None
+            candidate = inspect_report(document, report_id)
+            learning = {
+                "eligibility": candidate.eligibility.to_dict(),
+                "review": self._strategy_store().learning_status(report_id),
+            }
         await send(
             encode(
                 "report",
@@ -983,6 +1043,277 @@ class CoreServer:
                     "artifact": artifact,
                     "path": str(path),
                     "content": content,
+                    "learning": learning,
+                },
+            )
+        )
+
+    # ------------------------------------------------------ strategy library
+
+    def _strategy_store(self) -> StrategyStore:
+        store = self.state.strategies
+        if store is None:  # pragma: no cover - CoreServer always constructs it
+            raise CoreError("the strategy library is unavailable", code="learning_unavailable")
+        return store
+
+    async def _on_learning_capabilities(self, payload: dict[str, Any], send: Any) -> None:
+        await send(encode("learning.capabilities", self._strategy_store().capabilities()))
+
+    def _learning_report(self, report_id: str) -> dict[str, Any]:
+        try:
+            path = resolve_report(self.state.artifacts_root, report_id, "session.json")
+            if path.stat().st_size > MAX_SESSION_BYTES:
+                raise CoreError("the report is too large for learning", code="learning_invalid")
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except ReportError as exc:
+            raise CoreError(str(exc), code="unknown_report") from None
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CoreError(
+                f"the report could not be read for learning: {type(exc).__name__}",
+                code="learning_invalid",
+            ) from None
+        if not isinstance(document, dict):
+            raise CoreError("the report is not a JSON object", code="learning_invalid")
+        return document
+
+    def _prune_digest_previews(self) -> None:
+        now = time.monotonic()
+        self._strategy_digest_previews = {
+            token: saved
+            for token, saved in self._strategy_digest_previews.items()
+            if saved[0] > now
+        }
+        if len(self._strategy_digest_previews) >= 8:
+            oldest = min(
+                self._strategy_digest_previews,
+                key=lambda key: self._strategy_digest_previews[key][0],
+            )
+            self._strategy_digest_previews.pop(oldest, None)
+
+    async def _on_learning_preview(self, payload: dict[str, Any], send: Any) -> None:
+        report_id = _text(payload, "report_id", limit=120)
+        store = self._strategy_store()
+        reviewed = store.learning_status(report_id)
+        if reviewed and reviewed["status"] == "accepted":
+            await send(
+                encode(
+                    "learning.previewed",
+                    {
+                        "eligibility": {
+                            "eligible": False,
+                            "reason": "This report already has an accepted digest.",
+                            "report_id": report_id,
+                            "turn_id": "",
+                            "outcome": "",
+                            "deterministic": False,
+                        },
+                        "review": reviewed,
+                    },
+                )
+            )
+            return
+        document = self._learning_report(report_id)
+        candidate = inspect_report(document, report_id)
+        if not candidate.eligibility.eligible:
+            await send(
+                encode(
+                    "learning.previewed",
+                    {"eligibility": candidate.eligibility.to_dict(), "review": reviewed},
+                )
+            )
+            return
+
+        configuration = document.get("configuration")
+        assert isinstance(configuration, dict)
+        provider = str(configuration.get("provider", "fake"))[:64]
+        model = str(
+            configuration.get("requested_model")
+            or configuration.get("effective_model")
+            or ""
+        )[:128] or None
+        try:
+            digest_session = build_session(provider=provider, model=model)
+            try:
+                preview = await digest_session.propose_learning_digest(candidate, store)
+            finally:
+                await digest_session.close()
+        except (ContractError, ProviderRefused, LearningError, StrategyError) as exc:
+            raise CoreError(str(exc), code="learning_digest_failed") from None
+        self._prune_digest_previews()
+        token = new_preview_token()
+        self._strategy_digest_previews[token] = (time.monotonic() + 600, preview)
+        await send(
+            encode(
+                "learning.previewed",
+                {
+                    **preview.to_dict(),
+                    "preview_token": token,
+                    "expires_in_seconds": 600,
+                    "review": reviewed,
+                },
+            )
+        )
+
+    async def _on_learning_apply(self, payload: dict[str, Any], send: Any) -> None:
+        token = _text(payload, "preview_token", limit=80)
+        decision = _text(payload, "decision", limit=32)
+        saved = self._strategy_digest_previews.get(token)
+        if saved is None or saved[0] <= time.monotonic():
+            self._strategy_digest_previews.pop(token, None)
+            raise CoreError(
+                "the learning preview is missing or expired",
+                code="learning_preview_required",
+            )
+        preview = saved[1]
+        try:
+            strategy, experience = materialize_apply(
+                preview,
+                decision=decision,
+                edited=payload.get("strategy"),
+            )
+            result = self._strategy_store().apply_digest(
+                report_id=preview.report_id,
+                digest_action=preview.proposal.action,
+                digest_sha256=preview.digest_sha256,
+                strategy=strategy,
+                experience=experience,
+                decision=decision,
+            )
+        except (LearningError, StrategyError) as exc:
+            raise CoreError(str(exc), code="learning_apply_failed") from None
+        self._strategy_digest_previews.pop(token, None)
+        await send(encode("learning.applied", {"report_id": preview.report_id, **result}))
+
+    async def _on_learning_reject(self, payload: dict[str, Any], send: Any) -> None:
+        token = _text(payload, "preview_token", limit=80)
+        reason = _text(payload, "reason", limit=32, default="operator_rejected")
+        saved = self._strategy_digest_previews.get(token)
+        if saved is None or saved[0] <= time.monotonic():
+            self._strategy_digest_previews.pop(token, None)
+            raise CoreError(
+                "the learning preview is missing or expired",
+                code="learning_preview_required",
+            )
+        preview = saved[1]
+        try:
+            self._strategy_store().reject_digest(
+                report_id=preview.report_id,
+                digest_sha256=preview.digest_sha256,
+                reason=reason,
+            )
+        except StrategyError as exc:
+            raise CoreError(str(exc), code="learning_reject_failed") from None
+        self._strategy_digest_previews.pop(token, None)
+        await send(encode("learning.rejected", {"report_id": preview.report_id}))
+
+    async def _on_strategies_list(self, payload: dict[str, Any], send: Any) -> None:
+        status = _text(payload, "status", limit=32)
+        limit = _bounded_int(payload, "limit", default=100, minimum=1, maximum=500)
+        try:
+            strategies = self._strategy_store().list_strategies(status=status, limit=limit)
+        except StrategyError as exc:
+            raise CoreError(str(exc), code="strategy_invalid") from None
+        await send(encode("strategies", {"strategies": strategies}))
+
+    async def _on_strategies_open(self, payload: dict[str, Any], send: Any) -> None:
+        strategy_id = _text(payload, "strategy_id", limit=80)
+        raw_revision = payload.get("revision")
+        revision: int | None = None
+        if raw_revision is not None:
+            revision = _bounded_int(payload, "revision", default=1, minimum=1, maximum=10000)
+        try:
+            strategy = self._strategy_store().open_strategy(strategy_id, revision)
+            revisions = self._strategy_store().revisions(strategy_id)
+        except StrategyError as exc:
+            raise CoreError(str(exc), code="strategy_invalid") from None
+        await send(encode("strategy", {"strategy": strategy, "revisions": revisions}))
+
+    async def _on_strategies_set_status(self, payload: dict[str, Any], send: Any) -> None:
+        strategy_id = _text(payload, "strategy_id", limit=80)
+        status = _text(payload, "status", limit=32)
+        try:
+            strategy = self._strategy_store().set_status(strategy_id, status)
+        except StrategyError as exc:
+            raise CoreError(str(exc), code="strategy_invalid") from None
+        await send(encode("strategy.updated", {"strategy": strategy}))
+
+    async def _on_strategies_rollback(self, payload: dict[str, Any], send: Any) -> None:
+        strategy_id = _text(payload, "strategy_id", limit=80)
+        revision = _bounded_int(payload, "revision", default=1, minimum=1, maximum=10000)
+        try:
+            strategy = self._strategy_store().rollback(strategy_id, revision)
+        except StrategyError as exc:
+            raise CoreError(str(exc), code="strategy_invalid") from None
+        await send(encode("strategy.updated", {"strategy": strategy}))
+
+    async def _on_strategies_export(self, payload: dict[str, Any], send: Any) -> None:
+        try:
+            path, snapshot = self._strategy_store().export_snapshot(
+                self.state.artifacts_root / "strategy-snapshots"
+            )
+        except (OSError, StrategyError) as exc:
+            raise CoreError(str(exc), code="strategy_export_failed") from None
+        await send(
+            encode(
+                "strategies.exported",
+                {
+                    "path": str(path),
+                    "filename": path.name,
+                    "snapshot": snapshot,
+                },
+            )
+        )
+
+    async def _on_strategies_import_preview(self, payload: dict[str, Any], send: Any) -> None:
+        try:
+            snapshot, preview = self._strategy_store().preview_import(payload.get("snapshot"))
+        except StrategyError as exc:
+            raise CoreError(str(exc), code="strategy_import_invalid") from None
+        now = time.monotonic()
+        self._strategy_import_previews = {
+            token: saved
+            for token, saved in self._strategy_import_previews.items()
+            if saved[0] > now
+        }
+        if len(self._strategy_import_previews) >= 8:
+            oldest = min(
+                self._strategy_import_previews,
+                key=lambda key: self._strategy_import_previews[key][0],
+            )
+            self._strategy_import_previews.pop(oldest, None)
+        token = secrets.token_urlsafe(24)
+        self._strategy_import_previews[token] = (now + 600, snapshot)
+        await send(
+            encode(
+                "strategies.import_previewed",
+                {"preview_token": token, "expires_in_seconds": 600, "preview": preview},
+            )
+        )
+
+    async def _on_strategies_import_apply(self, payload: dict[str, Any], send: Any) -> None:
+        token = _text(payload, "preview_token", limit=80)
+        saved = self._strategy_import_previews.pop(token, None)
+        if saved is None or saved[0] <= time.monotonic():
+            raise CoreError(
+                "the strategy import preview is missing or expired",
+                code="strategy_import_preview_required",
+            )
+        try:
+            applied = self._strategy_store().apply_import(saved[1])
+        except StrategyError as exc:
+            raise CoreError(str(exc), code="strategy_import_invalid") from None
+        await send(
+            encode(
+                "strategies.imported",
+                {
+                    "strategies": [
+                        {
+                            "strategy_id": item["strategy_id"],
+                            "revision": item["revision"],
+                            "content_sha256": item["content_sha256"],
+                        }
+                        for item in applied
+                    ]
                 },
             )
         )

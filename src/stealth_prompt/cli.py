@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sqlite3
 import sys
 from collections.abc import Sequence
 from enum import IntEnum
@@ -48,6 +49,7 @@ class ExitCode(IntEnum):
     USAGE = 2  # argparse reserves this
     DISCLOSURE_FOUND = 3  # a finding, not an execution failure
     ENVIRONMENT = 4
+    QUALITY_GATE_FAILED = 5
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -71,8 +73,86 @@ def build_parser() -> argparse.ArgumentParser:
     _add_serve_parser(subparsers)
     _add_demo_parser(subparsers)
     _add_doctor_parser(subparsers)
+    _add_evaluate_parser(subparsers)
+    _add_library_parser(subparsers)
     _add_workbench_parser(subparsers)
     return parser
+
+
+def _add_evaluate_parser(subparsers: argparse._SubParsersAction) -> None:
+    evaluate = subparsers.add_parser(
+        "evaluate",
+        help="compare frozen strategy variants from stored measurements",
+        description=(
+            "Evaluate a versioned local benchmark from a frozen strategy snapshot and "
+            "stored session reports or measurements. Makes no provider, target, or "
+            "library mutation."
+        ),
+    )
+    evaluate.add_argument("--snapshot", required=True, metavar="FILE")
+    evaluate.add_argument("--measurements", default="", metavar="FILE")
+    evaluate.add_argument(
+        "--run",
+        action="append",
+        nargs=3,
+        default=[],
+        metavar=("SCENARIO", "VARIANT", "SESSION_JSON"),
+        help="derive one bounded measurement from an existing session report; repeatable",
+    )
+    evaluate.add_argument("--benchmark", default="", metavar="FILE")
+    evaluate.add_argument(
+        "--output",
+        default="evaluation-results",
+        metavar="DIR",
+        help="where JSON and self-contained HTML are written (default: %(default)s)",
+    )
+
+
+def _add_library_parser(subparsers: argparse._SubParsersAction) -> None:
+    library = subparsers.add_parser(
+        "library",
+        help="review, share, and promote private strategies",
+    )
+    library.add_argument(
+        "--strategy-db",
+        default=".stealth-prompt/strategies.sqlite3",
+        metavar="FILE",
+    )
+    actions = library.add_subparsers(dest="library_action", metavar="ACTION", required=True)
+
+    snapshot = actions.add_parser(
+        "snapshot-export", help="freeze the active strategy library for evaluation"
+    )
+    snapshot.add_argument("--output", default="strategy-snapshots", metavar="DIR")
+
+    export = actions.add_parser("pack-export", help="create a signed, report-free pack")
+    export.add_argument("--publisher", required=True, metavar="NAME")
+    export.add_argument("--private-key", required=True, metavar="ED25519_PEM")
+    export.add_argument("--audience", choices=["team", "community"], default="team")
+    export.add_argument("--minimum-attempts", type=int, default=5)
+    export.add_argument("--output", default="strategy-pack.json", metavar="FILE")
+
+    verify = actions.add_parser("pack-verify", help="verify a pack signature and manifest")
+    verify.add_argument("--pack", required=True, metavar="FILE")
+    verify.add_argument("--trusted-key-id", default="", metavar="SHA256")
+
+    import_pack = actions.add_parser(
+        "pack-import", help="preview a verified pack; apply only with explicit trust"
+    )
+    import_pack.add_argument("--pack", required=True, metavar="FILE")
+    import_pack.add_argument("--trusted-key-id", default="", metavar="SHA256")
+    import_pack.add_argument("--apply", action="store_true")
+    import_pack.add_argument("--yes", action="store_true")
+
+    promote = actions.add_parser(
+        "promote", help="preview or apply the fixed frozen-evaluation promotion gate"
+    )
+    promote.add_argument("--strategy-id", required=True)
+    promote.add_argument("--evaluation", required=True, metavar="FILE")
+    promote.add_argument("--scope", choices=["project", "private_global"], required=True)
+    promote.add_argument("--scope-key", default="", metavar="SHA256")
+    promote.add_argument("--apply", action="store_true")
+    promote.add_argument("--yes", action="store_true")
 
 
 def _add_serve_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -101,6 +181,12 @@ def _add_serve_parser(subparsers: argparse._SubParsersAction) -> None:
         default="results",
         metavar="DIR",
         help="where session evidence is written (default: %(default)s)",
+    )
+    serve.add_argument(
+        "--strategy-db",
+        default="",
+        metavar="FILE",
+        help="private strategy library (default: .stealth-prompt/strategies.sqlite3)",
     )
     serve.add_argument(
         "--expect-regex",
@@ -144,6 +230,12 @@ def _add_demo_parser(subparsers: argparse._SubParsersAction) -> None:
         metavar="DIR",
         help="where session evidence is written (default: %(default)s)",
     )
+    demo.add_argument(
+        "--strategy-db",
+        default="",
+        metavar="FILE",
+        help="private strategy library (default: .stealth-prompt/strategies.sqlite3)",
+    )
 
 
 def run_demo_command(args: argparse.Namespace, *, out: TextIO, err: TextIO) -> int:
@@ -186,12 +278,19 @@ def run_demo_command(args: argparse.Namespace, *, out: TextIO, err: TextIO) -> i
         return int(ExitCode.CONFIG_ERROR)
     target_port = target.server_address[1]
 
-    server = CoreServer(
-        host="127.0.0.1",
-        port=args.port,
-        artifacts_root=Path(args.artifacts_dir),
-        oracle_patterns=(pattern,),
-    )
+    try:
+        server = CoreServer(
+            host="127.0.0.1",
+            port=args.port,
+            artifacts_root=Path(args.artifacts_dir),
+            strategy_db=Path(args.strategy_db) if args.strategy_db else None,
+            oracle_patterns=(pattern,),
+        )
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        target.shutdown()
+        target.server_close()
+        print(f"Could not open the private strategy library: {exc}", file=err)
+        return int(ExitCode.CONFIG_ERROR)
 
     async def _serve() -> None:
         port = await server.start()
@@ -486,12 +585,17 @@ def run_serve_command(
                   file=err)
             return int(ExitCode.CONFIG_ERROR)
 
-    server = CoreServer(
-        host=args.host,
-        port=args.port,
-        artifacts_root=Path(args.artifacts_dir),
-        oracle_patterns=tuple(args.expect_regexes),
-    )
+    try:
+        server = CoreServer(
+            host=args.host,
+            port=args.port,
+            artifacts_root=Path(args.artifacts_dir),
+            strategy_db=Path(args.strategy_db) if args.strategy_db else None,
+            oracle_patterns=tuple(args.expect_regexes),
+        )
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        print(f"Could not open the private strategy library: {exc}", file=err)
+        return int(ExitCode.CONFIG_ERROR)
 
     async def _serve() -> None:
         port = await server.start()
@@ -537,6 +641,166 @@ def run_doctor_command(
     report = run_doctor(env, agent=agent)
     print(report.render(), file=out)
     return int(ExitCode.OK if report.ok else ExitCode.ENVIRONMENT)
+
+
+def run_evaluate_command(
+    args: argparse.Namespace, *, out: TextIO, err: TextIO
+) -> int:
+    """Build one immutable comparison report without opening the live library."""
+    from .core.evaluation import (
+        EvaluationError,
+        evaluate_frozen,
+        load_benchmark,
+        measurement_from_report,
+        measurements_document,
+        parse_measurements,
+        read_json,
+        write_evaluation,
+    )
+
+    try:
+        benchmark = load_benchmark(Path(args.benchmark)) if args.benchmark else load_benchmark()
+        snapshot = read_json(Path(args.snapshot))
+        runs = [
+            measurement_from_report(
+                read_json(Path(report_path)), scenario_id=scenario_id, variant=variant
+            )
+            for scenario_id, variant, report_path in args.run
+        ]
+        if args.measurements:
+            measurements = parse_measurements(
+                read_json(Path(args.measurements)), benchmark
+            )
+            measurements["runs"].extend(runs)
+        elif runs:
+            if not isinstance(snapshot, dict):
+                raise EvaluationError("strategy snapshot must be a JSON object")
+            measurements = measurements_document(
+                benchmark_id=benchmark["benchmark_id"],
+                snapshot_manifest_sha256=str(snapshot.get("manifest_sha256") or ""),
+                runs=runs,
+            )
+        else:
+            raise EvaluationError("provide --measurements or at least one --run")
+        report = evaluate_frozen(snapshot, measurements, benchmark=benchmark)
+        json_path, html_path = write_evaluation(Path(args.output), report)
+    except EvaluationError as exc:
+        print(f"Evaluation error: {exc}", file=err)
+        return int(ExitCode.CONFIG_ERROR)
+
+    print(f"Frozen evaluation: {report['evaluation_sha256']}", file=out)
+    print(f"Snapshot: {report['snapshot_manifest_sha256']}", file=out)
+    print(f"JSON: {json_path}", file=out)
+    print(f"HTML: {html_path}", file=out)
+    passed = bool(report["quality_gate"]["passed"])
+    print(f"Quality gate: {'passed' if passed else 'not passed'}", file=out)
+    return int(ExitCode.OK if passed else ExitCode.QUALITY_GATE_FAILED)
+
+
+def run_library_command(
+    args: argparse.Namespace, *, out: TextIO, err: TextIO
+) -> int:
+    """Run one explicit private-library workflow; no background sharing exists."""
+    import json
+
+    from .core.evaluation import EvaluationError, promotion_preview, read_json
+    from .core.packs import PackError, create_pack, read_pack, write_pack
+    from .core.strategies import StrategyError, StrategyStore
+
+    try:
+        if args.library_action == "pack-verify":
+            pack = read_pack(Path(args.pack))
+            key_id = pack["publisher"]["key_id"]
+            if args.trusted_key_id and args.trusted_key_id != key_id:
+                raise PackError("pack signer does not match --trusted-key-id")
+            print(f"Signature: valid ({pack['signature']['algorithm']})", file=out)
+            print(f"Publisher: {pack['publisher']['name']}", file=out)
+            print(f"Key ID: {key_id}", file=out)
+            print(f"Manifest: {pack['manifest_sha256']}", file=out)
+            return int(ExitCode.OK)
+
+        store = StrategyStore(Path(args.strategy_db))
+        if args.library_action == "snapshot-export":
+            destination, snapshot = store.export_snapshot(Path(args.output))
+            print(f"Strategy snapshot: {destination}", file=out)
+            print(f"Manifest: {snapshot['manifest_sha256']}", file=out)
+            return int(ExitCode.OK)
+
+        if args.library_action == "pack-export":
+            pack = create_pack(
+                store,
+                publisher=args.publisher,
+                private_key=Path(args.private_key),
+                audience=args.audience,
+                min_aggregate_attempts=args.minimum_attempts,
+            )
+            destination = write_pack(Path(args.output), pack)
+            print(f"Strategy pack: {destination}", file=out)
+            print(f"Publisher key ID: {pack['publisher']['key_id']}", file=out)
+            print(f"Manifest: {pack['manifest_sha256']}", file=out)
+            return int(ExitCode.OK)
+
+        if args.library_action == "pack-import":
+            pack = read_pack(Path(args.pack))
+            key_id = pack["publisher"]["key_id"]
+            _snapshot, preview = store.preview_import(pack["snapshot"])
+            print(json.dumps({"publisher": pack["publisher"], **preview}, indent=2), file=out)
+            if not args.apply:
+                print("Preview only: the library was not changed.", file=out)
+                return int(ExitCode.OK)
+            if not args.yes or args.trusted_key_id != key_id:
+                raise PackError(
+                    "applying a pack requires --apply --yes and its exact --trusted-key-id"
+                )
+            applied = store.apply_import(pack["snapshot"])
+            print(f"Applied strategies: {len(applied)}", file=out)
+            return int(ExitCode.OK)
+
+        if args.library_action == "promote":
+            preview = promotion_preview(
+                store,
+                read_json(Path(args.evaluation)),
+                strategy_id=args.strategy_id,
+                scope=args.scope,
+                scope_key=args.scope_key,
+            )
+            print(
+                json.dumps(
+                    {
+                        "eligible": preview["eligible"],
+                        "reasons": preview["reasons"],
+                        "strategy_id": preview["strategy_id"],
+                        "from_scope": preview["before"]["scope"],
+                        "to_scope": preview["after"]["scope"],
+                        "independent_confirmed_experiences": preview[
+                            "independent_confirmed_experiences"
+                        ],
+                        "evaluation_sha256": preview["evaluation_sha256"],
+                    },
+                    indent=2,
+                ),
+                file=out,
+            )
+            if not args.apply:
+                print("Preview only: the library was not changed.", file=out)
+                return int(ExitCode.OK)
+            if not args.yes:
+                raise EvaluationError("promotion requires --apply --yes")
+            if not preview["eligible"]:
+                raise EvaluationError("promotion gate did not pass")
+            saved = store.save_revision(
+                preview["after"],
+                source=preview["after"]["source"],
+                action="promote",
+            )
+            print(f"Promoted {saved['strategy_id']} to {saved['scope']}.", file=out)
+            return int(ExitCode.OK)
+    except (EvaluationError, PackError, StrategyError, OSError, sqlite3.Error) as exc:
+        print(f"Library error: {exc}", file=err)
+        return int(ExitCode.CONFIG_ERROR)
+
+    print("Library error: unsupported action", file=err)
+    return int(ExitCode.USAGE)
 
 
 def _render_plan(config: WorkbenchConfig, binding_summary: str = "") -> str:
@@ -822,6 +1086,10 @@ def main(
         return run_demo_command(args, out=out, err=err)
     if args.command == "doctor":
         return run_doctor_command(args, out=out, env=env)
+    if args.command == "evaluate":
+        return run_evaluate_command(args, out=out, err=err)
+    if args.command == "library":
+        return run_library_command(args, out=out, err=err)
     if args.command == "workbench":
         return run_workbench_command(args, out=out, err=err)
 

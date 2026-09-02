@@ -9,12 +9,13 @@ focused on authorized testing of selected AI interactions in a real browser sess
 - make long-running tests faster, resumable, and easier to recover after provider or
   page failures;
 - expand deterministic evidence and make report retention and deletion clearer;
+- expand the local benchmark with reproducible authorized target fixtures;
 - improve provider compatibility, release packaging, and installation diagnostics;
 - publish a tested compatibility matrix for supported browser UI patterns.
 
 ## Later
 
-- reusable objective, scenario, and scorer packs;
+- review automation for signed community strategy-pack pull requests;
 - trace and tool-call evidence through standard telemetry formats;
 - recorded multi-step flows for complex authenticated applications;
 - regression runs and CI-friendly report formats;

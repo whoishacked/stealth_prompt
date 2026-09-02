@@ -101,7 +101,10 @@ test('an authorized send cannot leave a stale payload clickable', () => {
 });
 
 test('persisted state round-trips and holds no secrets', () => {
-  const state = withBinding(reduce(initialState(), { type: 'settings', patch: { provider: 'codex' } }));
+  const state = withBinding(reduce(initialState(), {
+    type: 'settings',
+    patch: { provider: 'codex', learningEnabled: true, usePrivateStrategies: false },
+  }));
   const stored = persistable(state);
   const text = JSON.stringify(stored).toLowerCase();
   for (const forbidden of ['token', 'cookie', 'password', 'api_key', 'apikey']) {
@@ -109,6 +112,8 @@ test('persisted state round-trips and holds no secrets', () => {
   }
   const restored = restore(stored);
   assert.equal(restored.settings.provider, 'codex');
+  assert.equal(restored.settings.learningEnabled, true);
+  assert.equal(restored.settings.usePrivateStrategies, false);
   assert.equal(restored.bindingSaved, true);
 });
 

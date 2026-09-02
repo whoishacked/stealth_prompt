@@ -21,16 +21,24 @@ import {
   parseBindingValidation,
   parseCoreFrame,
   parseLocator,
+  parseLearningEligibility,
+  parseLearningPreview,
+  parseLearningReview,
   parseStoredReport,
 } from '../protocol/messages.js';
 import type {
   BindingRole,
   InteractionBinding,
   Locator,
+  LearningEligibility,
+  LearningPreview,
+  LearningReview,
   StoredReport,
 } from '../protocol/messages.js';
 import {
+  attackStateDocument,
   decisionPrompt,
+  directStrategyRoute,
   evaluationPrompt,
   parseDecision,
   parseEvaluation as parseDirectEvaluation,
@@ -113,8 +121,14 @@ let viewedReport: {
   summary: ReportSummary;
   document: StoredReport;
   directDocument?: Record<string, unknown>;
+  learningEligibility?: LearningEligibility;
+  learningReview?: LearningReview | null;
 } | null = null;
 let pendingReport: { reportId: string; artifact: string; view: boolean } | null = null;
+let learningPreview: LearningPreview | null = null;
+let learningWorking = false;
+let learningEditing = false;
+let learningEditText = '';
 /** The last scenario export path, and a previewed import awaiting a decision. */
 let scenarioExport = '';
 let scenarioPreview: Record<string, unknown> | null = null;
@@ -451,6 +465,21 @@ function renderConnection(root: HTMLElement): void {
           : 'No local service is required. Choose OpenAI or Anthropic and enter a key below.',
       ),
     );
+    const coreValue = el('div', 'scope-note');
+    coreValue.appendChild(
+      el(
+        'span',
+        '',
+        'Need durable HTML reports, deterministic scoring, replay, and private strategy learning? ',
+      ),
+    );
+    const learn = document.createElement('a');
+    learn.href = 'https://whoishacked.com/stealth_prompt/connections/';
+    learn.target = '_blank';
+    learn.rel = 'noreferrer';
+    learn.textContent = 'Connect Local Core.';
+    coreValue.appendChild(learn);
+    node.appendChild(coreValue);
     if (state.connection === 'connected') {
       const disconnect = el('button', '', 'Clear key & disconnect') as HTMLButtonElement;
       disconnect.onclick = () => disconnectDirect();
@@ -1151,7 +1180,58 @@ function renderSettings(root: HTMLElement): void {
   advanced.onchange = () =>
     dispatch({ type: 'settings', patch: { advancedInstruction: advanced.value } });
   node.appendChild(advanced);
+  if (state.settings.connectionMethod === 'core') {
+    const learning = el('details', 'settings-group') as HTMLDetailsElement;
+    const summary = el('summary');
+    summary.appendChild(el('strong', '', 'Local learning'));
+    summary.appendChild(el('span', '', state.settings.learningEnabled ? 'enabled' : 'off'));
+    learning.appendChild(summary);
+    learning.appendChild(
+      settingToggle(
+        'Offer this run for reviewed learning',
+        'Reports may create a sanitized preview. Nothing is accepted automatically.',
+        state.settings.learningEnabled,
+        (checked) => dispatch({ type: 'settings', patch: { learningEnabled: checked } }),
+      ),
+    );
+    learning.appendChild(
+      settingToggle(
+        'Use accepted private strategies',
+        'Include active private strategies in future Core routing.',
+        state.settings.usePrivateStrategies,
+        (checked) => dispatch({ type: 'settings', patch: { usePrivateStrategies: checked } }),
+      ),
+    );
+    learning.appendChild(
+      el(
+        'div',
+        'scope-note',
+        "New strategies stay target-specific by default. The source run's Core provider builds the preview.",
+      ),
+    );
+    node.appendChild(learning);
+  }
   root.appendChild(node);
+}
+
+function settingToggle(
+  title: string,
+  description: string,
+  checked: boolean,
+  change: (checked: boolean) => void,
+): HTMLElement {
+  const label = el('label', 'setting-toggle');
+  const copy = el('span');
+  copy.appendChild(el('strong', '', title));
+  copy.appendChild(el('small', '', description));
+  label.appendChild(copy);
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = checked;
+  input.setAttribute('role', 'switch');
+  input.onchange = () => change(input.checked);
+  label.appendChild(input);
+  return label;
 }
 
 function renderSettingsPage(root: HTMLElement): void {
@@ -1274,6 +1354,16 @@ function renderProposal(root: HTMLElement): void {
     }
     node.appendChild(el('div', 'note', `Goal: ${state.proposal.goal}`));
     node.appendChild(el('div', 'note', `Tactic: ${state.proposal.tactic}`));
+    node.appendChild(
+      el(
+        'div',
+        'note',
+        `Strategy: ${state.proposal.strategy_id ?? 'cold_start'} · Move: ${state.proposal.move_id ?? 'adaptive_probe'}`,
+      ),
+    );
+    if (state.proposal.pivot_reason) {
+      node.appendChild(el('div', 'note', `Pivot: ${state.proposal.pivot_reason}`));
+    }
     node.appendChild(el('div', 'kv').appendChild(el('span', '', 'Hypothesis')).parentElement!);
     node.appendChild(el('div', 'note', state.proposal.hypothesis));
     node.appendChild(el('label', '', 'Payload (editable)'));
@@ -1566,6 +1656,7 @@ function confirmDirectFinding(): void {
     ...state.evaluation,
     verdict: 'confirmed',
     deterministic: true,
+    failure_signature: null,
     summary: state.evaluation.summary || 'Confirmed by the operator.',
   };
   dispatch({
@@ -1595,6 +1686,7 @@ function resumeAuto(confirmFinding: boolean): void {
 }
 
 function directReportDocument(): Record<string, unknown> {
+  const history = directHistory();
   return {
     kind: 'assistant_session',
     schema_version: 1,
@@ -1613,6 +1705,7 @@ function directReportDocument(): Record<string, unknown> {
       objective: state.settings.objective,
       objective_text: state.settings.customObjective || state.settings.objective,
     },
+    attack_state: attackStateDocument(history),
     turns: directTurns.map((turn) => ({
       turn_id: turn.turnId,
       started_at: turn.startedAt,
@@ -1622,6 +1715,14 @@ function directReportDocument(): Record<string, unknown> {
         tactic: turn.tactic,
         hypothesis: turn.hypothesis,
         payload: turn.payload,
+        strategy_id: turn.strategyId,
+        move_id: turn.moveId,
+        pivot_reason: turn.pivotReason,
+        candidate_strategy_ids: turn.candidateStrategyIds,
+        router_version: turn.routerVersion,
+        library_snapshot_sha256: turn.librarySnapshotSha256,
+        selection_method: turn.selectionMethod,
+        prior_attempt_turn_id: turn.priorAttemptTurnId,
       },
       approved_payload: turn.payload,
       response: turn.response,
@@ -1629,6 +1730,7 @@ function directReportDocument(): Record<string, unknown> {
         verdict: turn.verdict,
         summary: turn.evaluationSummary,
         observed_signals: turn.observedSignals,
+        failure_signature: turn.failureSignature || null,
       },
     })),
     verdict: state.verdict,
@@ -2243,7 +2345,7 @@ function renderReportLibrary(root: HTMLElement): void {
       el(
         'div',
         'note',
-        'Local Core already adds portable reports on disk, Claude/Codex CLI and Ollama. Learning from reviewed runs is planned for Core mode.',
+        'Local Core adds portable reports on disk, Claude/Codex CLI and Ollama, plus a review-gated private strategy library.',
       ),
     );
     const coreDocs = document.createElement('a');
@@ -2336,6 +2438,9 @@ function renderReportCard(summary: ReportSummary, direct?: DirectReport): HTMLEl
     view.disabled = pendingReport !== null;
     view.onclick = () => {
       if (direct) {
+        learningPreview = null;
+        learningWorking = false;
+        learningEditing = false;
         viewedReport = {
           summary,
           document: direct.parsed,
@@ -2406,6 +2511,9 @@ function renderStoredReport(root: HTMLElement): void {
   const back = el('button', '', 'Back') as HTMLButtonElement;
   back.onclick = () => {
     viewedReport = null;
+    learningPreview = null;
+    learningWorking = false;
+    learningEditing = false;
     render();
   };
   heading.appendChild(back);
@@ -2439,6 +2547,7 @@ function renderStoredReport(root: HTMLElement): void {
     overview.appendChild(item);
   }
   root.appendChild(overview);
+  renderStrategyLearning(root);
 
   const turns = section(`Test turns (${report.turns.length})`);
   if (!report.turns.length) turns.appendChild(el('div', 'note', 'No turns were recorded.'));
@@ -2454,6 +2563,48 @@ function renderStoredReport(root: HTMLElement): void {
     if (turn.tactic) {
       detail.appendChild(el('h3', 'sub', 'Tactic'));
       detail.appendChild(el('div', 'note', turn.tactic));
+    }
+    const attribution = el('div', 'kv');
+    attribution.appendChild(el('span', '', 'Strategy / move'));
+    attribution.appendChild(
+      el('span', '', `${turn.strategyId.replaceAll('_', ' ')} / ${turn.moveId.replaceAll('_', ' ')}`),
+    );
+    detail.appendChild(attribution);
+    if (turn.selectionMethod || turn.routerVersion) {
+      const routing = el('div', 'kv');
+      routing.appendChild(el('span', '', 'Routing'));
+      routing.appendChild(el(
+        'span',
+        '',
+        `${turn.selectionMethod.replaceAll('_', ' ') || 'legacy'} · v${turn.routerVersion || 0}`,
+      ));
+      detail.appendChild(routing);
+    }
+    if (turn.candidateStrategyIds.length) {
+      detail.appendChild(el('h3', 'sub', 'Candidate strategies'));
+      detail.appendChild(el('div', 'note', turn.candidateStrategyIds.join(', ')));
+    }
+    if (turn.librarySnapshotSha256) {
+      const snapshot = el('div', 'kv');
+      snapshot.appendChild(el('span', '', 'Library snapshot'));
+      snapshot.appendChild(el('span', '', turn.librarySnapshotSha256));
+      detail.appendChild(snapshot);
+    }
+    if (turn.priorAttemptTurnId) {
+      const prior = el('div', 'kv');
+      prior.appendChild(el('span', '', 'Pivot source'));
+      prior.appendChild(el('span', '', turn.priorAttemptTurnId));
+      detail.appendChild(prior);
+    }
+    if (turn.pivotReason) {
+      detail.appendChild(el('h3', 'sub', 'Pivot reason'));
+      detail.appendChild(el('div', 'note', turn.pivotReason));
+    }
+    if (turn.failureSignature) {
+      const failure = el('div', 'kv');
+      failure.appendChild(el('span', '', 'Failure signature'));
+      failure.appendChild(el('span', '', turn.failureSignature.replaceAll('_', ' ')));
+      detail.appendChild(failure);
     }
     if (turn.hypothesis) {
       detail.appendChild(el('h3', 'sub', 'Hypothesis'));
@@ -2512,6 +2663,174 @@ function renderStoredReport(root: HTMLElement): void {
   }
   downloads.appendChild(actions);
   root.appendChild(downloads);
+}
+
+function renderStrategyLearning(root: HTMLElement): void {
+  if (!viewedReport) return;
+  const node = section('Strategy learning');
+  node.id = 'strategy-learning';
+  if (viewedReport.directDocument) {
+    const cta = el('div', 'core-cta');
+    cta.appendChild(el('strong', '', 'Want durable reports and a private strategy library?'));
+    cta.appendChild(
+      el(
+        'div',
+        'note',
+        'Connect Local Core to review sanitized run digests and improve future strategy routing. Direct API reports never mutate the Core library.',
+      ),
+    );
+    const docs = document.createElement('a');
+    docs.href = 'https://whoishacked.com/stealth_prompt/connections/';
+    docs.target = '_blank';
+    docs.rel = 'noreferrer';
+    docs.textContent = 'Learn about Local Core →';
+    cta.appendChild(docs);
+    node.appendChild(cta);
+    root.appendChild(node);
+    return;
+  }
+
+  const review = viewedReport.learningReview;
+  if (review?.status === 'accepted') {
+    node.appendChild(
+      el(
+        'div',
+        'note ok',
+        `Accepted${review.strategyId ? ` · ${review.strategyId}` : ''}${
+          review.revision ? ` · revision ${review.revision}` : ''
+        }`,
+      ),
+    );
+    node.appendChild(
+      el('div', 'note', 'Re-running this digest will not duplicate its experience or revision.'),
+    );
+    root.appendChild(node);
+    return;
+  }
+
+  const eligibility = viewedReport.learningEligibility;
+  if (!eligibility) {
+    node.appendChild(el('div', 'note', 'Learning eligibility is unavailable for this report.'));
+    root.appendChild(node);
+    return;
+  }
+  node.appendChild(
+    el(
+      'div',
+      `note ${eligibility.eligible ? 'ok' : 'faint'}`,
+      eligibility.eligible ? 'Eligible for reviewed learning' : 'Not eligible for learning',
+    ),
+  );
+  node.appendChild(el('div', 'note', eligibility.reason));
+  if (review?.status === 'rejected') {
+    node.appendChild(el('div', 'note', 'A previous suggestion was rejected; you may analyze again.'));
+  }
+  if (!eligibility.eligible) {
+    root.appendChild(node);
+    return;
+  }
+  if (learningWorking) {
+    node.appendChild(el('div', 'note warn', 'Building a sanitized digest preview…'));
+    root.appendChild(node);
+    return;
+  }
+  if (!learningPreview) {
+    const analyze = el('button', 'primary', 'Analyze this run') as HTMLButtonElement;
+    analyze.onclick = () => requestLearningPreview();
+    node.appendChild(analyze);
+    node.appendChild(
+      el(
+        'div',
+        'note faint',
+        'Analysis only creates a preview. The library changes only after your explicit decision.',
+      ),
+    );
+    root.appendChild(node);
+    return;
+  }
+
+  const preview = learningPreview;
+  const decision = el('div', 'learning-preview');
+  const action = el('div', 'kv');
+  action.appendChild(el('span', '', 'Proposed action'));
+  action.appendChild(el('strong', '', preview.action.replaceAll('_', ' ')));
+  decision.appendChild(action);
+  const scope = el('div', 'kv');
+  scope.appendChild(el('span', '', 'Affected scope'));
+  scope.appendChild(el('span', '', preview.affectedScope.replaceAll('_', ' ')));
+  decision.appendChild(scope);
+  decision.appendChild(el('div', 'note', preview.reason));
+  decision.appendChild(el('div', 'note faint', preview.routingEffect));
+
+  const sanitized = el('details', 'report-turn') as HTMLDetailsElement;
+  sanitized.appendChild(el('summary', '', 'Exact sanitized digest input'));
+  sanitized.appendChild(
+    el('pre', 'out learning-json', JSON.stringify(preview.sanitizedInput, null, 2)),
+  );
+  decision.appendChild(sanitized);
+  if (preview.before) decision.appendChild(strategyDocument('Before', preview.before));
+  if (preview.after) decision.appendChild(strategyDocument('After', preview.after));
+
+  if (learningEditing) {
+    const label = el('label', '', 'Edit proposed strategy JSON');
+    label.setAttribute('for', 'learning-edit');
+    decision.appendChild(label);
+    const input = document.createElement('textarea');
+    input.id = 'learning-edit';
+    input.className = 'learning-edit';
+    input.maxLength = 65_536;
+    input.value = learningEditText;
+    input.oninput = () => { learningEditText = input.value; };
+    decision.appendChild(input);
+  }
+
+  const actions = el('div', 'row');
+  if (learningEditing) {
+    const applyEdit = el('button', 'primary', 'Apply edited') as HTMLButtonElement;
+    applyEdit.onclick = () => applyLearning('edit');
+    actions.appendChild(applyEdit);
+    const cancelEdit = el('button', '', 'Cancel edit') as HTMLButtonElement;
+    cancelEdit.onclick = () => {
+      learningEditing = false;
+      learningEditText = preview.after ? JSON.stringify(preview.after, null, 2) : '';
+      render();
+    };
+    actions.appendChild(cancelEdit);
+  } else {
+    const accept = el('button', 'primary', 'Accept') as HTMLButtonElement;
+    accept.onclick = () => applyLearning('accept');
+    actions.appendChild(accept);
+    if (preview.after && ['create', 'widen', 'limit'].includes(preview.action)) {
+      const edit = el('button', '', 'Edit') as HTMLButtonElement;
+      edit.onclick = () => {
+        learningEditing = true;
+        learningEditText = JSON.stringify(preview.after, null, 2);
+        render();
+      };
+      actions.appendChild(edit);
+    }
+    if (
+      preview.targetSpecificAfter
+      && JSON.stringify(preview.targetSpecificAfter) !== JSON.stringify(preview.after)
+    ) {
+      const targetOnly = el('button', '', 'Keep target-specific') as HTMLButtonElement;
+      targetOnly.onclick = () => applyLearning('target_only');
+      actions.appendChild(targetOnly);
+    }
+    const reject = el('button', 'danger', 'Reject') as HTMLButtonElement;
+    reject.onclick = () => rejectLearning();
+    actions.appendChild(reject);
+  }
+  decision.appendChild(actions);
+  node.appendChild(decision);
+  root.appendChild(node);
+}
+
+function strategyDocument(title: string, document_: Record<string, unknown>): HTMLElement {
+  const details = el('details', 'report-turn') as HTMLDetailsElement;
+  details.appendChild(el('summary', '', `${title} strategy`));
+  details.appendChild(el('pre', 'out learning-json', JSON.stringify(document_, null, 2)));
+  return details;
 }
 
 /**
@@ -2667,7 +2986,18 @@ function handleFrame(frame: ReturnType<typeof parseCoreFrame>): void {
           fail('This stored report is not a supported session JSON document.', 'reports');
           break;
         }
-        viewedReport = { summary, document: parsed };
+        const learning = payload['learning'] && typeof payload['learning'] === 'object'
+          ? payload['learning'] as Record<string, unknown>
+          : {};
+        learningPreview = null;
+        learningWorking = false;
+        learningEditing = false;
+        viewedReport = {
+          summary,
+          document: parsed,
+          learningEligibility: parseLearningEligibility(learning['eligibility']),
+          learningReview: parseLearningReview(learning['review']),
+        };
         ui = reduceUi(ui, { type: 'clear_error', area: 'reports' });
         render();
         break;
@@ -2689,6 +3019,60 @@ function handleFrame(frame: ReturnType<typeof parseCoreFrame>): void {
       scenarioPreview = (payload['preview'] ?? null) as Record<string, unknown> | null;
       scenarioDocument = (payload['document'] ?? null) as Record<string, unknown> | null;
       dispatch({ type: 'clear_error' });
+      break;
+    case 'learning.previewed': {
+      const preview = parseLearningPreview(payload);
+      learningWorking = false;
+      if (!viewedReport || preview.eligibility.reportId !== viewedReport.summary.reportId) {
+        fail('The Core returned a learning preview for a different report.', 'reports');
+        break;
+      }
+      viewedReport.learningEligibility = preview.eligibility;
+      viewedReport.learningReview = preview.review;
+      learningPreview = preview.previewToken ? preview : null;
+      learningEditing = false;
+      learningEditText = preview.after ? JSON.stringify(preview.after, null, 2) : '';
+      clearError('reports');
+      render();
+      break;
+    }
+    case 'learning.applied':
+      learningWorking = false;
+      learningPreview = null;
+      learningEditing = false;
+      if (viewedReport) {
+        viewedReport.learningReview = {
+          status: 'accepted',
+          strategyId: String(payload['strategy_id'] ?? '').slice(0, 80),
+          revision: Number(payload['revision'] ?? 0),
+          action: '',
+          createdAt: new Date().toISOString(),
+        };
+      }
+      setNotice(
+        payload['idempotent']
+          ? 'This report was already applied; no duplicate was created.'
+          : 'Reviewed strategy learning was applied to Local Core.',
+      );
+      clearError('reports');
+      render();
+      break;
+    case 'learning.rejected':
+      learningWorking = false;
+      learningPreview = null;
+      learningEditing = false;
+      if (viewedReport) {
+        viewedReport.learningReview = {
+          status: 'rejected',
+          strategyId: '',
+          revision: 0,
+          action: '',
+          createdAt: new Date().toISOString(),
+        };
+      }
+      setNotice('Learning suggestion rejected. The report and strategy library were unchanged.');
+      clearError('reports');
+      render();
       break;
     case 'pair.rejected':
       fail(String(payload['message'] ?? 'pairing failed'), 'connection');
@@ -2830,6 +3214,11 @@ function handleFrame(frame: ReturnType<typeof parseCoreFrame>): void {
       break;
     case 'error':
       stopStageTicker();
+      if (learningWorking) {
+        learningWorking = false;
+        fail(String(payload['message'] ?? 'learning operation failed'), 'reports');
+        break;
+      }
       if (payload['code'] === 'no_session') {
         dispatch({ type: 'ready', coreVersion: state.coreVersion, session: null });
         dispatch({ type: 'auto_stopped', reason: 'core_session_lost' });
@@ -3189,6 +3578,8 @@ function configurePayload(): Record<string, unknown> {
     sharing: state.settings.sharing,
     objective: state.settings.objective,
     custom_objective: state.settings.customObjective,
+    learning_enabled: state.settings.learningEnabled,
+    use_private_strategies: state.settings.usePrivateStrategies,
   };
 }
 
@@ -3199,7 +3590,6 @@ function directObjective(): string {
 }
 
 function directContext(excludeLatest = false) {
-  const history = excludeLatest ? directTurns.slice(0, -1) : directTurns;
   return {
     objective: directObjective(),
     origin: state.origin,
@@ -3207,7 +3597,14 @@ function directContext(excludeLatest = false) {
     maxTurns: state.maxTurns,
     instruction: state.settings.advancedInstruction,
     sent: directSentPayloads,
-    history: history.slice(-3).map((turn) => ({
+    history: directHistory(excludeLatest),
+  };
+}
+
+function directHistory(excludeLatest = false) {
+  const history = excludeLatest ? directTurns.slice(0, -1) : directTurns;
+  return history.slice(-100).map((turn) => ({
+      turnId: turn.turnId,
       goal: turn.goal,
       tactic: turn.tactic,
       hypothesis: turn.hypothesis,
@@ -3221,8 +3618,11 @@ function directContext(excludeLatest = false) {
       observedSignals: turn.observedSignals
         .map((signal) => prepareSharedResponse(signal, state.settings.sharing))
         .filter(Boolean),
-    })),
-  };
+      strategyId: turn.strategyId,
+      moveId: turn.moveId,
+      pivotReason: prepareSharedResponse(turn.pivotReason, state.settings.sharing),
+      failureSignature: turn.failureSignature,
+  }));
 }
 
 async function askDirect(prompt: string): Promise<{ text: string; model: string }> {
@@ -3256,7 +3656,12 @@ async function requestDirectProposal(automatic = false): Promise<void> {
   startStageTicker();
   const started = performance.now();
   try {
-    const prompt = proposalPrompt(directContext());
+    const context = directContext();
+    const route = directStrategyRoute(context);
+    if (!route.plannerStrategies.length) {
+      throw new Error('No compatible active strategy remains for this run.');
+    }
+    const prompt = proposalPrompt(context, route);
     const proposal = await withStructuredRetry(
       askDirect,
       prompt,
@@ -3266,6 +3671,7 @@ async function requestDirectProposal(automatic = false): Promise<void> {
         state.settings.provider,
         state.settings.requestedModel,
         answer.model,
+        route,
       ),
     );
     stopStageTicker();
@@ -3301,6 +3707,15 @@ function directTurnForResponse(response: string): StoredReport['turns'][number] 
     verdict: '',
     evaluationSummary: '',
     observedSignals: [],
+    strategyId: state.proposal?.strategy_id ?? '',
+    moveId: state.proposal?.move_id ?? '',
+    pivotReason: state.proposal?.pivot_reason ?? '',
+    failureSignature: '',
+    candidateStrategyIds: state.proposal?.candidate_strategy_ids ?? [],
+    routerVersion: state.proposal?.router_version ?? 0,
+    librarySnapshotSha256: state.proposal?.library_snapshot_sha256 ?? '',
+    selectionMethod: state.proposal?.selection_method ?? '',
+    priorAttemptTurnId: state.proposal?.prior_attempt_turn_id ?? '',
   };
   directTurns.push(turn);
   return turn;
@@ -3313,6 +3728,7 @@ function recordDirectEvaluation(
   turn.verdict = evaluation.verdict.slice(0, 40);
   turn.evaluationSummary = evaluation.summary.slice(0, 4_000);
   turn.observedSignals = evaluation.observed_signals.slice(0, 30).map((signal) => signal.slice(0, 500));
+  turn.failureSignature = evaluation.failure_signature?.slice(0, 80) ?? '';
 }
 
 function directAggregateVerdict(): string {
@@ -3365,7 +3781,13 @@ async function analyzeDirectResponse(response: string): Promise<void> {
   try {
     const context = directContext(true);
     const combined = state.settings.mode === 'guided' || state.settings.mode === 'auto';
-    const prompt = combined ? decisionPrompt(context, shared) : evaluationPrompt(context, shared);
+    const route = combined ? directStrategyRoute(context, true) : undefined;
+    if (route && !route.plannerStrategies.length) {
+      throw new Error('No compatible active strategy remains for this run.');
+    }
+    const prompt = combined
+      ? decisionPrompt(context, shared, route)
+      : evaluationPrompt(context, shared);
     const parsed = await withStructuredRetry(
       askDirect,
       prompt,
@@ -3376,6 +3798,7 @@ async function analyzeDirectResponse(response: string): Promise<void> {
           state.settings.provider,
           state.settings.requestedModel,
           answer.model,
+          route,
         )
         : parseDirectEvaluation(answer.text),
     );
@@ -3691,6 +4114,9 @@ async function performDirectSend(payload: string): Promise<void> {
     fail('The payload is empty.', 'test');
     return;
   }
+  // `sending` clears the clickable proposal from panel state; retain its
+  // reviewed metadata for the evidence turn before making that transition.
+  const proposal = state.proposal;
   dispatch({ type: 'stage', stage: 'sending', at: Date.now() });
   const result = await executePageInteraction(
     payload,
@@ -3706,14 +4132,23 @@ async function performDirectSend(payload: string): Promise<void> {
     turnId: `direct-turn-${directTurns.length + 1}`,
     startedAt: new Date().toISOString(),
     approved: true,
-    goal: state.proposal?.goal.slice(0, 2_000) ?? '',
-    tactic: state.proposal?.tactic.slice(0, 2_000) ?? '',
-    hypothesis: state.proposal?.hypothesis.slice(0, 2_000) ?? '',
+    goal: proposal?.goal.slice(0, 2_000) ?? '',
+    tactic: proposal?.tactic.slice(0, 2_000) ?? '',
+    hypothesis: proposal?.hypothesis.slice(0, 2_000) ?? '',
     payload: payload.slice(0, 16_384),
     response: result.response?.trim().slice(0, 32_768) ?? '',
     verdict: '',
     evaluationSummary: '',
     observedSignals: [],
+    strategyId: proposal?.strategy_id ?? '',
+    moveId: proposal?.move_id ?? '',
+    pivotReason: proposal?.pivot_reason ?? '',
+    failureSignature: '',
+    candidateStrategyIds: proposal?.candidate_strategy_ids ?? [],
+    routerVersion: proposal?.router_version ?? 0,
+    librarySnapshotSha256: proposal?.library_snapshot_sha256 ?? '',
+    selectionMethod: proposal?.selection_method ?? '',
+    priorAttemptTurnId: proposal?.prior_attempt_turn_id ?? '',
   });
   dispatch({
     type: 'session',
@@ -3762,6 +4197,52 @@ function stopSession(): void {
   if (state.settings.connectionMethod === 'direct') void saveDirectReportSnapshot();
   // A finished run belongs in Reports, not on a live screen with nothing live.
   uiDispatch({ type: 'follow_state' });
+}
+
+function requestLearningPreview(): void {
+  if (
+    state.settings.connectionMethod !== 'core'
+    || state.connection !== 'connected'
+    || !viewedReport
+    || viewedReport.directDocument
+  ) return;
+  learningWorking = true;
+  clearError('reports');
+  send('learning.preview', { report_id: viewedReport.summary.reportId });
+  render();
+}
+
+function applyLearning(decision: 'accept' | 'edit' | 'target_only'): void {
+  if (!learningPreview?.previewToken) return;
+  const payload: Record<string, unknown> = {
+    preview_token: learningPreview.previewToken,
+    decision,
+  };
+  if (decision === 'edit') {
+    try {
+      const edited: unknown = JSON.parse(learningEditText);
+      if (typeof edited !== 'object' || edited === null || Array.isArray(edited)) {
+        throw new Error('The edited strategy must be a JSON object.');
+      }
+      payload['strategy'] = edited;
+    } catch (error) {
+      fail(`Edited strategy is not valid JSON: ${(error as Error).message}`, 'reports');
+      return;
+    }
+  }
+  learningWorking = true;
+  send('learning.apply', payload);
+  render();
+}
+
+function rejectLearning(): void {
+  if (!learningPreview?.previewToken) return;
+  learningWorking = true;
+  send('learning.reject', {
+    preview_token: learningPreview.previewToken,
+    reason: 'operator_rejected',
+  });
+  render();
 }
 
 /** Read the report library from its runtime-owned durable store. */

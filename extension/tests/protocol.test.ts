@@ -18,6 +18,8 @@ import {
   parseBindingSuggestion,
   parseBindingValidation,
   parseCoreFrame,
+  parseLearningEligibility,
+  parseLearningPreview,
   parseLocator,
   parseStoredReport,
 } from '../src/protocol/messages.js';
@@ -181,4 +183,36 @@ test('stored reports are bounded data, not trusted markup', () => {
   assert.equal(report?.turns[0]?.verdict, 'potential');
   assert.deepEqual(report?.turns[0]?.observedSignals, ['one']);
   assert.equal(parseStoredReport({ schema_version: 1, kind: 'other', turns: [] }), null);
+});
+
+test('learning previews stay bounded and preserve the exact sanitized object', () => {
+  const sanitized = {
+    kind: 'strategy_digest_candidate',
+    payload_template: '[PAYLOAD OMITTED]',
+  };
+  const preview = parseLearningPreview({
+    preview_token: 'preview-token',
+    report_id: 'assistant-20260814T120000Z-abc123',
+    eligibility: {
+      eligible: true,
+      reason: 'Eligible',
+      report_id: 'assistant-20260814T120000Z-abc123',
+      turn_id: 'turn-1',
+      outcome: 'potential',
+      deterministic: false,
+    },
+    sanitized_input: sanitized,
+    action: 'create',
+    reason: 'A reusable mechanism.',
+    after: { strategy_id: 'learned-one', mechanism: '<img onerror=alert(1)>' },
+    affected_scope: 'target',
+    routing_effect: 'Adds one target strategy.',
+    digest_sha256: 'a'.repeat(64),
+    expires_in_seconds: 600,
+  });
+
+  assert.deepEqual(preview.sanitizedInput, sanitized);
+  assert.equal(preview.after?.['mechanism'], '<img onerror=alert(1)>');
+  assert.equal(preview.eligibility.outcome, 'potential');
+  assert.equal(parseLearningEligibility({ eligible: 'yes' }).eligible, false);
 });

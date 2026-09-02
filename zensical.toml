@@ -14,6 +14,7 @@ nav = [
     { "Choose a connection" = "connections.md" },
     { "Run a test" = "testing.md" },
     { "Reports and evidence" = "reports.md" },
+    { "Evaluate and share strategies" = "evaluation-and-sharing.md" },
     { "Extension reference" = "extension.md" },
   ] },
   { "Reference" = [
