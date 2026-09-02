@@ -101,7 +101,10 @@ test('an authorized send cannot leave a stale payload clickable', () => {
 });
 
 test('persisted state round-trips and holds no secrets', () => {
-  const state = withBinding(reduce(initialState(), { type: 'settings', patch: { provider: 'codex' } }));
+  const state = withBinding(reduce(initialState(), {
+    type: 'settings',
+    patch: { provider: 'codex', learningEnabled: true, usePrivateStrategies: false },
+  }));
   const stored = persistable(state);
   const text = JSON.stringify(stored).toLowerCase();
   for (const forbidden of ['token', 'cookie', 'password', 'api_key', 'apikey']) {
@@ -109,7 +112,91 @@ test('persisted state round-trips and holds no secrets', () => {
   }
   const restored = restore(stored);
   assert.equal(restored.settings.provider, 'codex');
+  assert.equal(restored.settings.learningEnabled, true);
+  assert.equal(restored.settings.usePrivateStrategies, false);
   assert.equal(restored.bindingSaved, true);
+  assert.equal(restored.settings.frameFuzz.enabled, false);
+});
+
+test('old state versions migrate with FrameFuzz disabled', () => {
+  const restored = restore({
+    version: 4,
+    settings: { connectionMethod: 'core', provider: 'fake' },
+  });
+  assert.equal(restored.settings.frameFuzz.enabled, false);
+});
+
+test('Core FrameFuzz requires an advertised capability', () => {
+  let state = initialState();
+  state = reduce(state, { type: 'ready', coreVersion: 'old', session: null });
+  state = reduce(state, {
+    type: 'providers',
+    providers: [{ kind: 'fake', label: 'Fake', external: false, model_discovery: false, custom_model: false, summary: '' }],
+  });
+  state = reduce(state, {
+    type: 'health',
+    health: [{ kind: 'fake', state: 'authenticated', detail: '', remedy: '', usable: true }],
+  });
+  state = withBinding(state);
+  state = reduce(state, {
+    type: 'settings',
+    patch: {
+      mode: 'auto',
+      sharing: 'redacted',
+      maxTurns: 5,
+      frameFuzz: {
+        ...state.settings.frameFuzz,
+        enabled: true,
+        framedStrategies: ['integrity_signature'],
+        randomSeed: 'unit-test-seed',
+      },
+    },
+  });
+
+  assert.equal(
+    evaluateReadiness(state).blockers.some((item) => item.key === 'framefuzz_core_capability'),
+    true,
+  );
+  state = reduce(state, { type: 'framefuzz_capability', available: true });
+  assert.equal(
+    evaluateReadiness(state).blockers.some((item) => item.key === 'framefuzz_core_capability'),
+    false,
+  );
+});
+
+test('an incomplete FrameFuzz campaign restores only at the reset gate', () => {
+  let state = initialState();
+  state = reduce(state, {
+    type: 'framefuzz',
+    campaign: {
+      schema_version: 1,
+      campaign_id: 'framefuzz-test',
+      status: 'ready',
+      conclusion: 'inconclusive',
+      template_pack: 'framefuzz-core',
+      template_version: 1,
+      random_seed: 'unit-test-seed',
+      case_order: ['clean_control', 'explicit', 'integrity_signature'],
+      semantic_seed_hash: 'a'.repeat(64),
+      total_cases: 3,
+      completed_cases: 0,
+      current_case: {
+        case_id: 'case-1', strategy: 'clean_control', strategy_label: 'Clean control',
+        ordinal: 1, context_isolation: 'verified', binding_validation: 'verified',
+        outcome: 'pending', deterministic: false, human_verified: false, scorer_ran: false,
+      },
+      cases: [],
+      warnings: [],
+    },
+  });
+  state = reduce(state, { type: 'auto_started' });
+
+  const restored = restore(persistable(state));
+
+  assert.equal(restored.autoRunning, false);
+  assert.equal(restored.frameFuzzCampaign?.status, 'awaiting_context');
+  assert.equal(restored.frameFuzzCampaign?.currentCase?.contextIsolation, 'pending');
+  assert.equal(restored.frameFuzzCampaign?.currentCase?.bindingValidation, 'pending');
 });
 
 test('direct API can satisfy connection readiness without a Core', () => {

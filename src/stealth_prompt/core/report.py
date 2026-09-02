@@ -33,6 +33,12 @@ def _code(value: object, *, empty: str = "Not retained") -> str:
     return f'<pre class="evidence">{rendered}</pre>'
 
 
+def _counts(value: object) -> str:
+    if not isinstance(value, dict) or not value:
+        return '<p class="muted">None recorded</p>'
+    return _list([f"{key}: {count}" for key, count in sorted(value.items())])
+
+
 #: Status wording that keeps "we checked and found nothing" separate from "we
 #: never checked". Collapsing the two would overstate a `not_detected` verdict.
 _SCORER_STATUS = {
@@ -75,6 +81,79 @@ def _scorers(results: object) -> str:
     )
 
 
+def _framefuzz(value: object) -> str:
+    """Render the optional matched-comparison section with hostile text escaped."""
+    campaign = value if isinstance(value, dict) else {}
+    if not campaign.get("campaign_id"):
+        return ""
+    raw_cases = campaign.get("cases")
+    cases = raw_cases if isinstance(raw_cases, list) else []
+    rows: list[str] = []
+    explicit = "not run"
+    framed_signals: list[str] = []
+    for raw_case in cases:
+        case = raw_case if isinstance(raw_case, dict) else {}
+        strategy = str(case.get("strategy", ""))
+        outcome = str(case.get("outcome", "pending"))
+        if strategy == "explicit":
+            explicit = outcome
+        if strategy not in {"clean_control", "explicit"} and outcome in {
+            "confirmed",
+            "potential",
+        }:
+            framed_signals.append(strategy)
+        scorer_rows = case.get("scorers")
+        scorer_rows = scorer_rows if isinstance(scorer_rows, list) else []
+        evidence = []
+        for raw_scorer in scorer_rows:
+            scorer = raw_scorer if isinstance(raw_scorer, dict) else {}
+            evidence.append(
+                f"{scorer.get('scorer_id', 'scorer')}: {scorer.get('status', 'unknown')}"
+            )
+        if case.get("human_verified"):
+            evidence.append("operator: verified")
+        rows.append(
+            "<tr>"
+            f"<td>{_text(case.get('ordinal'))}</td>"
+            f"<td>{_label(case.get('strategy'))}</td>"
+            f"<td>{_text(case.get('template_id'))} · "
+            f"{('intact' if case.get('template_intact') is not False else 'edited')}</td>"
+            f"<td><span class=\"badge neutral\">{_label(outcome)}</span></td>"
+            f"<td>{_text('; '.join(evidence), fallback='Not run')}</td>"
+            f"<td>{_label(case.get('context_isolation'))}</td>"
+            f"<td>{_label(case.get('binding_validation'))}</td>"
+            f"<td>{_text(case.get('turn_id'))}</td>"
+            "</tr>"
+        )
+    warnings = campaign.get("warnings")
+    warning_list = warnings if isinstance(warnings, list) else []
+    order = campaign.get("case_order")
+    order_text = ", ".join(str(item) for item in order) if isinstance(order, list) else ""
+    signal_text = ", ".join(framed_signals) if framed_signals else "none"
+    return f"""
+  <section>
+    <h2>FrameFuzz matched comparison</h2>
+    <div class="verdict">
+      <p class="muted">Does the target reject the explicit request but perform the same unsafe outcome after framing changes?</p>
+      <span class="badge neutral">{_label(campaign.get("conclusion"))}</span>
+    </div>
+    <dl class="facts">
+      <div><dt>Campaign</dt><dd>{_text(campaign.get("campaign_id"))}</dd></div>
+      <div><dt>Template pack</dt><dd>{_text(campaign.get("template_pack"))} v{_text(campaign.get("template_version"))}</dd></div>
+      <div><dt>Semantic seed SHA-256</dt><dd class="hash">{_text(campaign.get("semantic_seed_hash"))}</dd></div>
+      <div><dt>Random seed</dt><dd class="hash">{_text(campaign.get("random_seed"))}</dd></div>
+      <div><dt>Case order</dt><dd>{_text(order_text)}</dd></div>
+      <div><dt>Differential</dt><dd>Explicit: {_label(explicit)} · framed signal: {_text(signal_text)}</dd></div>
+    </dl>
+    <table><thead><tr><th>#</th><th>Strategy</th><th>Template</th><th>Result</th><th>Scorer provenance</th><th>Isolation</th><th>Binding</th><th>Turn</th></tr></thead>
+      <tbody>{"".join(rows) if rows else '<tr><td colspan="8">No cases recorded.</td></tr>'}</tbody>
+    </table>
+    {(_list(warning_list, empty="No campaign warnings"))}
+    <p class="muted">No gap observed means only that this bounded comparison did not observe one; it is not evidence that the target is secure.</p>
+  </section>
+"""
+
+
 def render_report(document: dict[str, Any]) -> str:
     """Render one exported assistant session as a portable HTML report."""
     configuration = document.get("configuration")
@@ -90,6 +169,9 @@ def render_report(document: dict[str, Any]) -> str:
     events = timeline.get("events", []) if isinstance(timeline, dict) else []
     if not isinstance(events, list):
         events = []
+    attack_state = document.get("attack_state")
+    attack_state = attack_state if isinstance(attack_state, dict) else {}
+    framefuzz = document.get("framefuzz")
 
     verdict = str(document.get("verdict", "inconclusive"))
     verdict_class = {
@@ -115,7 +197,16 @@ def render_report(document: dict[str, Any]) -> str:
               <dl class="facts compact">
                 <div><dt>Goal</dt><dd>{_text(proposal.get("goal"))}</dd></div>
                 <div><dt>Tactic</dt><dd>{_text(proposal.get("tactic"))}</dd></div>
+                <div><dt>Strategy</dt><dd>{_label(proposal.get("strategy_id") or "cold_start")}</dd></div>
+                <div><dt>Move</dt><dd>{_label(proposal.get("move_id") or "adaptive_probe")}</dd></div>
+                <div><dt>Selection</dt><dd>{_label(proposal.get("selection_method") or "legacy_static")}</dd></div>
+                <div><dt>Router version</dt><dd>{_text(proposal.get("router_version"), fallback="—")}</dd></div>
+                <div><dt>Candidate strategies</dt><dd>{_text(", ".join(proposal.get("candidate_strategy_ids", [])) if isinstance(proposal.get("candidate_strategy_ids"), list) else "")}</dd></div>
+                <div><dt>Library snapshot</dt><dd class="hash">{_text(proposal.get("library_snapshot_sha256"))}</dd></div>
+                <div><dt>Prior attempt</dt><dd>{_text(proposal.get("prior_attempt_turn_id"))}</dd></div>
                 <div><dt>Hypothesis</dt><dd>{_text(proposal.get("hypothesis"))}</dd></div>
+                <div><dt>Pivot reason</dt><dd>{_text(proposal.get("pivot_reason"))}</dd></div>
+                <div><dt>Failure signature</dt><dd>{_label(evaluation.get("failure_signature"))}</dd></div>
                 <div><dt>Risk</dt><dd>{_label(proposal.get("risk"))}</dd></div>
                 <div><dt>Approved</dt><dd>{"Yes" if turn.get("approved") else "No"}</dd></div>
                 <div><dt>Deterministic</dt><dd>{"Yes" if evaluation.get("deterministic") else "No"}</dd></div>
@@ -216,6 +307,20 @@ def render_report(document: dict[str, Any]) -> str:
     <span class="badge {verdict_class}">{_label(verdict)}</span>
   </section>
   <section>
+    <h2>Whole-run attack state</h2>
+    <dl class="facts">
+      <div><dt>State schema</dt><dd>{_text(attack_state.get("schema_version"))}</dd></div>
+      <div><dt>Current strategy</dt><dd>{_label(attack_state.get("current_strategy_id"))}</dd></div>
+      <div><dt>Current move</dt><dd>{_label(attack_state.get("current_move_id"))}</dd></div>
+      <div><dt>Refusal streak</dt><dd>{_text(attack_state.get("refusal_streak"), fallback="0")}</dd></div>
+      <div><dt>Repetition streak</dt><dd>{_text(attack_state.get("repetition_streak"), fallback="0")}</dd></div>
+    </dl>
+    <div class="columns">
+      <div><h4>Moves attempted</h4>{_counts(attack_state.get("move_attempts"))}</div>
+      <div><h4>Failure signatures</h4>{_counts(attack_state.get("failure_counts"))}</div>
+    </div>
+  </section>
+  <section>
     <h2>Scope and configuration</h2>
     <dl class="facts">
       <div><dt>Target origin</dt><dd>{_text(configuration.get("origin"))}</dd></div>
@@ -238,6 +343,7 @@ def render_report(document: dict[str, Any]) -> str:
     <h4>Interaction binding</h4>
     <p>{_text(configuration.get("binding_summary"))}</p>
   </section>
+  {_framefuzz(framefuzz)}
   <section>
     <h2>Attack chain</h2>
     {"".join(turn_sections) if turn_sections else '<p class="muted">No turns were recorded.</p>'}

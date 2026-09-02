@@ -37,6 +37,7 @@ ENV/
 # Session evidence is ignored by directory, not by extension: a blanket *.json
 # rule silently swallowed the extension tsconfigs and broke a fresh clone's CI.
 results/
+.stealth-prompt/
 .screenshot-profile/
 *.log
 

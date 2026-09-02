@@ -20,8 +20,14 @@
 
 import type { BindingSuggestion, InteractionBinding } from '../protocol/messages.js';
 import { emptyBinding } from '../protocol/messages.js';
+import {
+  DEFAULT_PROTECTED_VALUE_LABEL,
+  DEFAULT_SAFE_DESTINATION,
+  FRAMEFUZZ_STRATEGIES,
+} from '../framefuzz.js';
+import type { FrameFuzzSettings, FrameFuzzStrategy } from '../framefuzz.js';
 
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 5;
 
 export type ConnectionState =
   | 'disconnected'
@@ -104,6 +110,14 @@ export interface Proposal {
   provider: string;
   requested_model: string | null;
   effective_model: string | null;
+  strategy_id?: string;
+  move_id?: string;
+  pivot_reason?: string;
+  candidate_strategy_ids?: string[];
+  router_version?: number;
+  library_snapshot_sha256?: string;
+  selection_method?: string;
+  prior_attempt_turn_id?: string;
 }
 
 export interface Evaluation {
@@ -114,6 +128,7 @@ export interface Evaluation {
   evidence_ids: string[];
   suggested_next_steps: string[];
   deterministic: boolean;
+  failure_signature?: string | null;
 }
 
 export interface TimelineEntry {
@@ -139,6 +154,12 @@ export interface Settings {
   objective: string;
   customObjective: string;
   advancedInstruction: string;
+  /** A completed Core run may be offered for reviewed digesting. */
+  learningEnabled: boolean;
+  /** Routing may use active strategies already accepted into the private library. */
+  usePrivateStrategies: boolean;
+  /** Reproducible matched framing comparison; contains labels, never actual secrets. */
+  frameFuzz: FrameFuzzSettings;
 }
 
 /** The port `stealth-prompt serve` uses unless told otherwise. */
@@ -159,7 +180,49 @@ export function defaultSettings(): Settings {
     objective: 'instruction_disclosure',
     customObjective: '',
     advancedInstruction: '',
+    learningEnabled: false,
+    usePrivateStrategies: true,
+    frameFuzz: {
+      enabled: false,
+      framedStrategies: ['integrity_signature', 'required_config', 'trusted_destination'],
+      protectedValueLabel: DEFAULT_PROTECTED_VALUE_LABEL,
+      safeDestination: DEFAULT_SAFE_DESTINATION,
+      randomizeOrder: true,
+      randomSeed: '',
+    },
   };
+}
+
+export interface FrameFuzzCaseSummary {
+  caseId: string;
+  strategy: FrameFuzzStrategy;
+  strategyLabel: string;
+  ordinal: number;
+  contextIsolation: 'pending' | 'verified' | 'unverified';
+  bindingValidation: string;
+  outcome: string;
+  deterministic: boolean;
+  templateIntact: boolean;
+  humanVerified: boolean;
+  scorerRan: boolean;
+  turnId: string;
+}
+
+export interface FrameFuzzCampaignSummary {
+  schemaVersion: 1;
+  campaignId: string;
+  status: 'awaiting_context' | 'ready' | 'complete';
+  conclusion: string;
+  templatePack: string;
+  templateVersion: number;
+  randomSeed: string;
+  caseOrder: FrameFuzzStrategy[];
+  semanticSeedHash: string;
+  totalCases: number;
+  completedCases: number;
+  currentCase: FrameFuzzCaseSummary | null;
+  cases: FrameFuzzCaseSummary[];
+  warnings: string[];
 }
 
 /** Everything the Side Panel renders. */
@@ -169,6 +232,8 @@ export interface PanelState {
   connectionDetail: string;
   pairingRequired: boolean;
   coreVersion: string;
+  /** Advertised by Core; false prevents a new panel silently using an old protocol. */
+  frameFuzzCoreAvailable: boolean;
 
   sessionId: string;
   origin: string;
@@ -217,6 +282,7 @@ export interface PanelState {
    * screens.
    */
   sessionEnded: boolean;
+  frameFuzzCampaign: FrameFuzzCampaignSummary | null;
 }
 
 export function initialState(): PanelState {
@@ -226,6 +292,7 @@ export function initialState(): PanelState {
     connectionDetail: '',
     pairingRequired: false,
     coreVersion: '',
+    frameFuzzCoreAvailable: false,
     sessionId: '',
     origin: '',
     tabId: null,
@@ -260,6 +327,7 @@ export function initialState(): PanelState {
     verdict: 'inconclusive',
     timeline: [],
     sessionEnded: false,
+    frameFuzzCampaign: null,
   };
 }
 
@@ -267,6 +335,7 @@ export type Action =
   | { type: 'connection'; state: ConnectionState; detail?: string }
   | { type: 'pairing_required' }
   | { type: 'ready'; coreVersion: string; session: Record<string, unknown> | null }
+  | { type: 'framefuzz_capability'; available: boolean }
   | { type: 'settings'; patch: Partial<Settings> }
   | { type: 'providers'; providers: ProviderSpec[] }
   | { type: 'health'; health: ProviderHealth[] }
@@ -298,6 +367,7 @@ export type Action =
   | { type: 'error'; message: string }
   | { type: 'clear_error' }
   | { type: 'timeline'; entry: TimelineEntry }
+  | { type: 'framefuzz'; campaign: unknown }
   | { type: 'restore'; state: PanelState };
 
 const MAX_TIMELINE = 200;
@@ -311,6 +381,7 @@ function applySession(state: PanelState, session: Record<string, unknown>): Pane
     const value = session[key];
     return typeof value === 'number' ? value : fallback;
   };
+  const hasFrameFuzz = Object.prototype.hasOwnProperty.call(session, 'framefuzz');
   return {
     ...state,
     sessionId: str('session_id', state.sessionId),
@@ -319,6 +390,9 @@ function applySession(state: PanelState, session: Record<string, unknown>): Pane
     maxTurns: num('max_turns', state.maxTurns),
     verdict: str('verdict', state.verdict),
     origin: str('origin', state.origin),
+    frameFuzzCampaign: hasFrameFuzz
+      ? parseFrameFuzzCampaign(session['framefuzz'])
+      : state.frameFuzzCampaign,
   };
 }
 
@@ -339,6 +413,8 @@ export function reduce(state: PanelState, action: Action): PanelState {
         errorMessage:
           action.state === 'connecting' || action.state === 'connected' ? '' : state.errorMessage,
         stage: action.state === 'disconnected' ? 'core_disconnected' : state.stage,
+        frameFuzzCoreAvailable:
+          action.state === 'disconnected' ? false : state.frameFuzzCoreAvailable,
       };
 
     case 'pairing_required':
@@ -383,6 +459,9 @@ export function reduce(state: PanelState, action: Action): PanelState {
 
     case 'providers':
       return { ...state, providers: action.providers };
+
+    case 'framefuzz_capability':
+      return { ...state, frameFuzzCoreAvailable: action.available };
 
     case 'health': {
       const health: Record<string, ProviderHealth> = {};
@@ -577,6 +656,9 @@ export function reduce(state: PanelState, action: Action): PanelState {
       return { ...state, timeline: timeline.slice(-MAX_TIMELINE) };
     }
 
+    case 'framefuzz':
+      return { ...state, frameFuzzCampaign: parseFrameFuzzCampaign(action.campaign) };
+
     case 'restore':
       return { ...action.state, version: STATE_VERSION };
 
@@ -601,6 +683,7 @@ export function persistable(state: PanelState): Record<string, unknown> {
     timeline: state.timeline,
     effectiveModel: state.effectiveModel,
     sessionEnded: state.sessionEnded,
+    frameFuzzCampaign: state.frameFuzzCampaign,
   };
 }
 
@@ -616,7 +699,13 @@ export function restore(raw: unknown): PanelState {
   const base = initialState();
   if (typeof raw !== 'object' || raw === null) return base;
   const record = raw as Record<string, unknown>;
-  if (record['version'] !== STATE_VERSION && record['version'] !== 2 && record['version'] !== 1) {
+  if (
+    record['version'] !== STATE_VERSION
+    && record['version'] !== 4
+    && record['version'] !== 3
+    && record['version'] !== 2
+    && record['version'] !== 1
+  ) {
     return base;
   }
 
@@ -638,6 +727,7 @@ export function restore(raw: unknown): PanelState {
         ? {
             ...base.settings,
             ...storedSettings,
+            frameFuzz: restoreFrameFuzzSettings(storedSettings.frameFuzz),
             connectionMethod: restoredMethod,
             corePort: coercePort(storedSettings.corePort),
             maxTurns: coerceBoundedInt(
@@ -652,7 +742,7 @@ export function restore(raw: unknown): PanelState {
                 ? storedSettings.potentialFindingAction
                 : 'review',
             maxDurationSeconds: coerceBoundedInt(
-              record['version'] === STATE_VERSION ? storedSettings.maxDurationSeconds : 0,
+              Number(record['version']) >= 3 ? storedSettings.maxDurationSeconds : 0,
               0,
               1800,
               base.settings.maxDurationSeconds,
@@ -679,7 +769,133 @@ export function restore(raw: unknown): PanelState {
       ? (record['timeline'] as TimelineEntry[]).slice(-MAX_TIMELINE)
       : [],
     sessionEnded: record['sessionEnded'] === true,
+    // Reload never restores send authority. An incomplete campaign returns to
+    // the explicit reset gate even if it was ready when the panel closed.
+    frameFuzzCampaign: safelyPauseCampaign(
+      parseFrameFuzzCampaign(record['frameFuzzCampaign']),
+    ),
   };
+}
+
+function restoreFrameFuzzSettings(value: unknown): FrameFuzzSettings {
+  const base = defaultSettings().frameFuzz;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return base;
+  const record = value as Partial<FrameFuzzSettings>;
+  const selected = Array.isArray(record.framedStrategies)
+    ? record.framedStrategies.filter(
+        (item): item is FrameFuzzStrategy =>
+          typeof item === 'string'
+          && FRAMEFUZZ_STRATEGIES.includes(item as FrameFuzzStrategy)
+          && !['clean_control', 'explicit'].includes(item),
+      )
+    : base.framedStrategies;
+  return {
+    enabled: record.enabled === true,
+    framedStrategies: selected,
+    protectedValueLabel:
+      typeof record.protectedValueLabel === 'string'
+        ? record.protectedValueLabel.slice(0, 80)
+        : base.protectedValueLabel,
+    safeDestination:
+      typeof record.safeDestination === 'string'
+        ? record.safeDestination.slice(0, 300)
+        : base.safeDestination,
+    randomizeOrder: record.randomizeOrder !== false,
+    randomSeed:
+      typeof record.randomSeed === 'string' ? record.randomSeed.slice(0, 64) : '',
+  };
+}
+
+function line(value: unknown, limit = 200): string {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, limit) : '';
+}
+
+function field(record: Record<string, unknown>, snake: string, camel: string): unknown {
+  return record[snake] ?? record[camel];
+}
+
+function parseFrameFuzzCase(value: unknown): FrameFuzzCaseSummary | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const strategy = record['strategy'];
+  if (
+    typeof strategy !== 'string'
+    || !FRAMEFUZZ_STRATEGIES.includes(strategy as FrameFuzzStrategy)
+  ) return null;
+  const isolation = record['context_isolation'];
+  const durableIsolation = isolation ?? record['contextIsolation'];
+  return {
+    caseId: line(field(record, 'case_id', 'caseId'), 160),
+    strategy: strategy as FrameFuzzStrategy,
+    strategyLabel: line(field(record, 'strategy_label', 'strategyLabel'), 80) || strategy.replaceAll('_', ' '),
+    ordinal: typeof record['ordinal'] === 'number' ? Math.max(1, Math.round(record['ordinal'])) : 1,
+    contextIsolation:
+      durableIsolation === 'verified' || durableIsolation === 'unverified'
+        ? durableIsolation
+        : 'pending',
+    bindingValidation: line(field(record, 'binding_validation', 'bindingValidation'), 40) || 'pending',
+    outcome: line(record['outcome'], 40) || 'pending',
+    deterministic: record['deterministic'] === true,
+    templateIntact: field(record, 'template_intact', 'templateIntact') !== false,
+    humanVerified: field(record, 'human_verified', 'humanVerified') === true,
+    scorerRan: field(record, 'scorer_ran', 'scorerRan') === true,
+    turnId: line(field(record, 'turn_id', 'turnId'), 160),
+  };
+}
+
+export function parseFrameFuzzCampaign(value: unknown): FrameFuzzCampaignSummary | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const schemaVersion = field(record, 'schema_version', 'schemaVersion');
+  const campaignId = field(record, 'campaign_id', 'campaignId');
+  if (schemaVersion !== 1 || typeof campaignId !== 'string') return null;
+  const cases = Array.isArray(record['cases'])
+    ? record['cases'].slice(0, 5).map(parseFrameFuzzCase).filter((item): item is FrameFuzzCaseSummary => item !== null)
+    : [];
+  const current = parseFrameFuzzCase(field(record, 'current_case', 'currentCase'));
+  const status = record['status'];
+  const caseOrder = field(record, 'case_order', 'caseOrder');
+  const rawOrder = Array.isArray(caseOrder) ? caseOrder : [];
+  return {
+    schemaVersion: 1,
+    campaignId: line(campaignId, 160),
+    status: status === 'ready' || status === 'complete' ? status : 'awaiting_context',
+    conclusion: line(record['conclusion'], 60) || 'inconclusive',
+    templatePack: line(field(record, 'template_pack', 'templatePack'), 80),
+    templateVersion:
+      typeof field(record, 'template_version', 'templateVersion') === 'number'
+        ? Number(field(record, 'template_version', 'templateVersion'))
+        : 0,
+    randomSeed: line(field(record, 'random_seed', 'randomSeed'), 64),
+    caseOrder: rawOrder.filter(
+      (item): item is FrameFuzzStrategy => typeof item === 'string'
+        && FRAMEFUZZ_STRATEGIES.includes(item as FrameFuzzStrategy),
+    ).slice(0, 5),
+    semanticSeedHash: line(field(record, 'semantic_seed_hash', 'semanticSeedHash'), 64),
+    totalCases:
+      typeof field(record, 'total_cases', 'totalCases') === 'number'
+        ? Math.min(5, Math.max(0, Math.round(Number(field(record, 'total_cases', 'totalCases')))))
+        : cases.length,
+    completedCases:
+      typeof field(record, 'completed_cases', 'completedCases') === 'number'
+        ? Math.min(5, Math.max(0, Math.round(Number(field(record, 'completed_cases', 'completedCases')))))
+        : 0,
+    currentCase: current,
+    cases,
+    warnings: Array.isArray(record['warnings'])
+      ? record['warnings'].slice(0, 10).map((item) => line(item, 500)).filter(Boolean)
+      : [],
+  };
+}
+
+function safelyPauseCampaign(
+  campaign: FrameFuzzCampaignSummary | null,
+): FrameFuzzCampaignSummary | null {
+  if (!campaign || campaign.status === 'complete') return campaign;
+  const current = campaign.currentCase
+    ? { ...campaign.currentCase, contextIsolation: 'pending' as const, bindingValidation: 'pending' }
+    : null;
+  return { ...campaign, status: 'awaiting_context', currentCase: current };
 }
 
 function coerceBoundedInt(

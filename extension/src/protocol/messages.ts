@@ -35,11 +35,23 @@ export type CoreRequestType =
   | 'response.manual'
   | 'auto.start'
   | 'finding.confirm'
+  | 'framefuzz.context_confirm'
   | 'session.export'
   | 'scenario.export'
   | 'scenario.preview'
   | 'reports.list'
   | 'reports.open'
+  | 'learning.capabilities'
+  | 'learning.preview'
+  | 'learning.apply'
+  | 'learning.reject'
+  | 'strategies.list'
+  | 'strategies.open'
+  | 'strategies.set_status'
+  | 'strategies.rollback'
+  | 'strategies.export'
+  | 'strategies.import_preview'
+  | 'strategies.import_apply'
   | 'session.stop'
   | 'cancel'
   | 'ping';
@@ -63,11 +75,22 @@ export const CORE_RESPONSE_TYPES = [
   'evaluation.pending',
   'evaluation',
   'auto.started',
+  'framefuzz.ready',
   'exported',
   'scenario.exported',
   'scenario.preview',
   'reports',
   'report',
+  'learning.capabilities',
+  'learning.previewed',
+  'learning.applied',
+  'learning.rejected',
+  'strategies',
+  'strategy',
+  'strategy.updated',
+  'strategies.exported',
+  'strategies.import_previewed',
+  'strategies.imported',
   'session.stopped',
   'cancelled',
   'error',
@@ -379,6 +402,15 @@ export interface StoredReportTurn {
   verdict: string;
   evaluationSummary: string;
   observedSignals: string[];
+  strategyId: string;
+  moveId: string;
+  pivotReason: string;
+  failureSignature: string;
+  candidateStrategyIds: string[];
+  routerVersion: number;
+  librarySnapshotSha256: string;
+  selectionMethod: string;
+  priorAttemptTurnId: string;
 }
 
 export interface StoredReport {
@@ -392,6 +424,41 @@ export interface StoredReport {
   mode: string;
   potentialFindingAction: string;
   turns: StoredReportTurn[];
+  frameFuzz: Record<string, unknown> | null;
+}
+
+export interface LearningEligibility {
+  eligible: boolean;
+  reason: string;
+  reportId: string;
+  turnId: string;
+  outcome: string;
+  deterministic: boolean;
+}
+
+export interface LearningReview {
+  status: string;
+  strategyId: string;
+  revision: number;
+  action: string;
+  createdAt: string;
+}
+
+export interface LearningPreview {
+  previewToken: string;
+  reportId: string;
+  eligibility: LearningEligibility;
+  sanitizedInput: Record<string, unknown>;
+  action: string;
+  reason: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  targetSpecificAfter: Record<string, unknown> | null;
+  affectedScope: string;
+  routingEffect: string;
+  digestSha256: string;
+  expiresInSeconds: number;
+  review: LearningReview | null;
 }
 
 /** Artifacts the panel will ask for. A closed list, matching the Core's. */
@@ -424,6 +491,62 @@ function boundedBlock(value: unknown, limit = 65_536): string {
 function boundedLines(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 30).map((item) => boundedLine(item, 500)).filter(Boolean);
+}
+
+export function parseLearningEligibility(value: unknown): LearningEligibility {
+  const raw = record(value);
+  return {
+    eligible: raw['eligible'] === true,
+    reason: boundedLine(raw['reason'], 600),
+    reportId: boundedLine(raw['report_id'], 120),
+    turnId: boundedLine(raw['turn_id'], 120),
+    outcome: boundedLine(raw['outcome'], 32),
+    deterministic: raw['deterministic'] === true,
+  };
+}
+
+export function parseLearningReview(value: unknown): LearningReview | null {
+  const raw = record(value);
+  const status = boundedLine(raw['status'], 32);
+  if (!status) return null;
+  return {
+    status,
+    strategyId: boundedLine(raw['strategy_id'], 80),
+    revision: typeof raw['revision'] === 'number' ? Math.max(0, raw['revision']) : 0,
+    action: boundedLine(raw['action'], 32),
+    createdAt: boundedLine(raw['created_at'], 64),
+  };
+}
+
+function boundedLearningObject(value: unknown): Record<string, unknown> | null {
+  const raw = record(value);
+  if (!Object.keys(raw).length) return null;
+  const encoded = JSON.stringify(raw);
+  if (encoded.length > 65_536) return null;
+  return JSON.parse(encoded) as Record<string, unknown>;
+}
+
+export function parseLearningPreview(value: unknown): LearningPreview {
+  const raw = record(value);
+  return {
+    previewToken: boundedLine(raw['preview_token'], 80),
+    reportId: boundedLine(raw['report_id'], 120),
+    eligibility: parseLearningEligibility(raw['eligibility']),
+    sanitizedInput: boundedLearningObject(raw['sanitized_input']) ?? {},
+    action: boundedLine(raw['action'], 32),
+    reason: boundedBlock(raw['reason'], 600),
+    before: boundedLearningObject(raw['before']),
+    after: boundedLearningObject(raw['after']),
+    targetSpecificAfter: boundedLearningObject(raw['target_specific_after']),
+    affectedScope: boundedLine(raw['affected_scope'], 32),
+    routingEffect: boundedBlock(raw['routing_effect'], 600),
+    digestSha256: boundedLine(raw['digest_sha256'], 64),
+    expiresInSeconds:
+      typeof raw['expires_in_seconds'] === 'number'
+        ? Math.max(0, Math.min(3600, raw['expires_in_seconds']))
+        : 0,
+    review: parseLearningReview(raw['review']),
+  };
 }
 
 /** Parse the stored evidence document before any of it reaches the DOM. */
@@ -462,8 +585,19 @@ export function parseStoredReport(value: unknown): StoredReport | null {
         verdict: boundedLine(evaluation['verdict'], 40),
         evaluationSummary: boundedBlock(evaluation['summary'], 4_000),
         observedSignals: boundedLines(evaluation['observed_signals']),
+        strategyId: boundedLine(proposal['strategy_id'], 80) || 'cold_start',
+        moveId: boundedLine(proposal['move_id'], 80) || 'adaptive_probe',
+        pivotReason: boundedBlock(proposal['pivot_reason'], 2_000),
+        failureSignature: boundedLine(evaluation['failure_signature'], 80),
+        candidateStrategyIds: boundedLines(proposal['candidate_strategy_ids']).slice(0, 8),
+        routerVersion: typeof proposal['router_version'] === 'number'
+          ? proposal['router_version'] : 0,
+        librarySnapshotSha256: boundedLine(proposal['library_snapshot_sha256'], 64),
+        selectionMethod: boundedLine(proposal['selection_method'], 40),
+        priorAttemptTurnId: boundedLine(proposal['prior_attempt_turn_id'], 120),
       };
     }),
+    frameFuzz: boundedLearningObject(document_['framefuzz']),
   };
 }
 

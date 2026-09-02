@@ -13,12 +13,15 @@ nav = [
   { "Use Stealth Prompt" = [
     { "Choose a connection" = "connections.md" },
     { "Run a test" = "testing.md" },
+    { "FrameFuzz experiments" = "framefuzz.md" },
     { "Reports and evidence" = "reports.md" },
+    { "Evaluate and share strategies" = "evaluation-and-sharing.md" },
     { "Extension reference" = "extension.md" },
   ] },
   { "Reference" = [
     { "Security and privacy" = "security-and-privacy.md" },
     { "Troubleshooting" = "troubleshooting.md" },
+    { "Scenario schema" = "scenarios.md" },
   ] },
   { "Project" = [
     { "Product roadmap" = "product-roadmap.md" },

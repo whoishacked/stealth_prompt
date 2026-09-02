@@ -18,6 +18,7 @@ from stealth_prompt.core.assistant import (
     build_session,
 )
 from stealth_prompt.core.contracts import Objective
+from stealth_prompt.core.framefuzz import ALL_STRATEGIES, FrameFuzzConfig
 from stealth_prompt.core.scenario_file import (
     MAX_SCENARIO_BYTES,
     SCENARIO_KIND,
@@ -91,6 +92,7 @@ class TestRoundTrip:
         assert restored.binding.summary() == original.binding.summary()
         assert [rule.oracle_id for rule in restored.scorers] == ["canary-1"]
         assert restored.scorers[0].oracle_type is OracleType.REGEX
+        assert restored.framefuzz.enabled is False
 
     def test_the_serialized_form_is_stable(self) -> None:
         """A second round trip must not drift, or diffs become unreadable."""
@@ -107,6 +109,36 @@ class TestRoundTrip:
 
         assert restored.schema_version == SCENARIO_SCHEMA_VERSION
         assert restored.potential_finding_action is PotentialFindingAction.REVIEW
+        assert restored.framefuzz.enabled is False
+
+    def test_version_two_migrates_with_framefuzz_disabled(self) -> None:
+        document = sample().to_dict()
+        document["schema_version"] = 2
+        document.pop("framefuzz")
+
+        restored = parse_scenario(document)
+
+        assert restored.schema_version == SCENARIO_SCHEMA_VERSION
+        assert restored.framefuzz.enabled is False
+
+    def test_framefuzz_configuration_round_trips_without_evidence(self) -> None:
+        original = Scenario(
+            **{
+                **sample().__dict__,
+                "framefuzz": FrameFuzzConfig(
+                    enabled=True,
+                    strategies=ALL_STRATEGIES,
+                    random_seed="scenario-seed-1",
+                ),
+            }
+        )
+        record = parse_scenario(original.to_json()).to_dict()
+
+        assert record["framefuzz"]["enabled"] is True
+        assert record["framefuzz"]["random_seed"] == "scenario-seed-1"
+        encoded = json.dumps(record)
+        for absent in ("response_text", "captured", "timeline", "session_id"):
+            assert absent not in encoded
 
     def test_it_is_exported_from_a_session_without_evidence(self) -> None:
         session = build_session(provider="fake", objective=Objective.SENSITIVE_DATA)

@@ -39,6 +39,11 @@ an automation script.
     Model judgement can raise a potential finding. Confirmation requires a deterministic
     check or an explicit operator decision.
 
+-   **Matched framing comparison**
+
+    FrameFuzz holds the unsafe outcome constant across clean, explicit, and framed
+    cases, with a fresh target context and recorded isolation for every case.
+
 </div>
 
 ## Two ways to connect AI
@@ -66,3 +71,7 @@ data-sharing policy, and autonomy limits.
 2. [Choose Local Core or Direct API](connections.md).
 3. [Bind the target interaction and run a test](testing.md).
 4. [Review and export the evidence](reports.md).
+5. [Run a reproducible FrameFuzz comparison](framefuzz.md), when the objective is
+   disclosure-related.
+6. [Evaluate and share reviewed strategies](evaluation-and-sharing.md), if you maintain
+   a Core library.

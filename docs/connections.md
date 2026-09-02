@@ -35,7 +35,22 @@ The Core discovers available providers and models:
 
 Run `stealth-prompt doctor` when a CLI provider is missing or model discovery fails.
 Use `stealth-prompt serve --port <port>` for a non-default port and enter the same port
-in the extension.
+in the extension. Core also owns the private, revisioned strategy library. It uses
+`.stealth-prompt/strategies.sqlite3` by default; pass `--strategy-db <file>` to keep it
+elsewhere. Strategy snapshots contain reusable abstractions, not captured replies or
+credentials. Before each planning turn, Core filters active strategies by objective,
+scope, mode, observed surface/capabilities, response pattern, and exhausted moves. It
+then exposes at most three bounded strategy summaries to the planner. Target and project
+scope keys are SHA-256 identifiers rather than stored origins.
+
+Core can also learn from a completed report, but only when the operator enabled
+**Offer this run for reviewed learning** before that run. Reports shows eligibility and,
+on request, generates a sanitized preview using the source report's provider and model.
+Accept, Edit, and Keep target-specific are the only actions that mutate the local
+library; Reject records only the decision. Reopening an accepted report is idempotent.
+Reviewed libraries can also be evaluated against a frozen local benchmark, promoted
+through fixed quality gates, and exchanged as explicitly trusted signed files. See
+[Evaluate and share strategies](evaluation-and-sharing.md).
 
 ## Direct API
 
@@ -51,7 +66,18 @@ written to `chrome.storage`, bindings, reports, or exports. Closing the panel cl
     and prefer Local Core if browser-process exposure is unacceptable.
 
 Direct API supports Payload only, Assist, Guided, and bounded Auto. It does not provide
-CLI providers, Core scenarios, deterministic scorers, or the Core's HTML artifact.
+CLI providers, Core scenarios, deterministic scorers, the Core's HTML artifact, or a
+mutable private strategy library. It does use the shipped read-only strategy catalogue,
+with the same bounded selection and report attribution.
+
+Direct reports can be reviewed and exported in the extension, but they are not learning
+inputs and never mutate a paired Core. Reports shows a quiet link to the Core setup when
+you want the private, revisioned library.
+
+FrameFuzz is available on both paths. Core can evaluate cases with deterministic
+scorers and can therefore reach a confirmed framing-gap conclusion. Direct API uses
+the same local deterministic templates and fresh-context gates, but its conclusion is
+capped at potential because its evaluator is a model. See [FrameFuzz](framefuzz.md).
 
 ## Data sharing
 

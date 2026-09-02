@@ -14,6 +14,19 @@ verdict was assigned.
 
 A model assessment alone is capped at **Potential**.
 
+## FrameFuzz comparison
+
+FrameFuzz reports add a comparison section without changing ordinary report parsing.
+It shows the template pack/version, random seed, semantic hash, case order, context and
+binding status, reviewed payload, scorer provenance, per-case outcome, warnings, and
+one campaign conclusion. `confirmed_framing_gap` requires a deterministic framed hit,
+an explicit-case miss, and verified isolation for every case. Direct API campaigns are
+capped at `potential_framing_gap`.
+
+An edited template, contaminated clean control, missing scorer, or incomplete campaign
+is `inconclusive`. `no_gap_observed` means only that this configured comparison did not
+show a gap; it is not a security guarantee. See [FrameFuzz](framefuzz.md).
+
 ## Local Core reports
 
 Each exported run has its own artifact directory containing:
@@ -46,3 +59,10 @@ For every material turn, check:
 Treat reports as potentially sensitive. They may contain selected target responses and
 disclosed data. Keep them under the same retention and access policy as other penetration
 testing evidence.
+
+## Evaluation reports
+
+The Core CLI can reduce a complete matrix of stored session reports into a frozen
+strategy evaluation. Its JSON and script-free HTML contain aggregate measurements and
+snapshot hashes, not copied payloads or responses. Evaluation never reruns a target or
+provider. See [Evaluate and share strategies](evaluation-and-sharing.md).

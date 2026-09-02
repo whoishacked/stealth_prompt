@@ -136,7 +136,15 @@ const ACTIVE_STAGES = new Set([
 
 export function runActive(state: PanelState): boolean {
   if (state.sessionEnded) return false;
-  return state.autoRunning || ACTIVE_STAGES.has(state.stage) || state.turns > 0;
+  const frameFuzzAwaitingCase = Boolean(
+    state.sessionId
+    && state.frameFuzzCampaign
+    && state.frameFuzzCampaign.status !== 'complete',
+  );
+  return state.autoRunning
+    || ACTIVE_STAGES.has(state.stage)
+    || state.turns > 0
+    || frameFuzzAwaitingCase;
 }
 
 /**

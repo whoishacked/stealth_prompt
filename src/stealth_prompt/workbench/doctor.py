@@ -251,6 +251,21 @@ def _check_playwright(env: Environment) -> tuple[DoctorCheck, DoctorCheck]:
     )
 
 
+def _check_strategy_storage(env: Environment) -> DoctorCheck:
+    if not env.module_available("sqlite3"):
+        return DoctorCheck(
+            name="strategy library",
+            status=CheckStatus.ERROR,
+            detail="the Python sqlite3 module is unavailable",
+            remedy="install Python with SQLite support",
+        )
+    return DoctorCheck(
+        name="strategy library",
+        status=CheckStatus.OK,
+        detail="SQLite persistence available",
+    )
+
+
 def _check_agent_cli(
     env: Environment,
     *,
@@ -332,7 +347,10 @@ def run_doctor(
     """
     environment = env if env is not None else SystemEnvironment()
 
-    checks: list[DoctorCheck] = [_check_python(environment)]
+    checks: list[DoctorCheck] = [
+        _check_python(environment),
+        _check_strategy_storage(environment),
+    ]
     checks.extend(_check_playwright(environment))
 
     if agent is AgentKind.FAKE:

@@ -159,6 +159,38 @@ class Verdict(str, Enum):
         return self.value
 
 
+class FailureSignature(str, Enum):
+    """A bounded explanation of why one attack move did not fully work."""
+
+    EXPLICIT_REFUSAL = "explicit_refusal"
+    TREATED_AS_INERT_DATA = "treated_as_inert_data"
+    ASKED_FOR_CONFIRMATION = "asked_for_confirmation"
+    WRONG_CAPABILITY = "wrong_capability"
+    WRONG_ACTION_OR_ARGUMENTS = "wrong_action_or_arguments"
+    PARTIAL_DISCLOSURE = "partial_disclosure"
+    REPEATED_RESPONSE = "repeated_response"
+    NO_RELEVANT_SIGNAL = "no_relevant_signal"
+    TARGET_ERROR = "target_error"
+    CAPTURE_UNRELIABLE = "capture_unreliable"
+
+
+class MoveId(str, Enum):
+    """Stable moves available before the private strategy library exists."""
+
+    MAP_CAPABILITIES = "map_capabilities"
+    ESTABLISH_CONTEXT = "establish_context"
+    TEST_BOUNDARY = "test_boundary"
+    ESCALATE = "escalate"
+    VERIFY_EVIDENCE = "verify_evidence"
+    PIVOT = "pivot"
+    ADAPTIVE_PROBE = "adaptive_probe"
+
+
+DEFAULT_STRATEGY_ID = "cold_start"
+DEFAULT_MOVE_ID = MoveId.ADAPTIVE_PROBE.value
+INITIAL_MOVE_IDS = frozenset(move.value for move in MoveId)
+
+
 class ContractError(ValueError):
     """A model reply could not be parsed into a contract."""
 
@@ -227,6 +259,14 @@ class Proposal:
     provider: str = ""
     requested_model: str | None = None
     effective_model: str | None = None
+    strategy_id: str = DEFAULT_STRATEGY_ID
+    move_id: str = DEFAULT_MOVE_ID
+    pivot_reason: str = ""
+    candidate_strategy_ids: tuple[str, ...] = ()
+    router_version: int = 0
+    library_snapshot_sha256: str = ""
+    selection_method: str = "legacy_static"
+    prior_attempt_turn_id: str = ""
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -253,6 +293,14 @@ class Proposal:
             "provider": self.provider,
             "requested_model": self.requested_model,
             "effective_model": self.effective_model,
+            "strategy_id": self.strategy_id,
+            "move_id": self.move_id,
+            "pivot_reason": self.pivot_reason,
+            "candidate_strategy_ids": list(self.candidate_strategy_ids),
+            "router_version": self.router_version,
+            "library_snapshot_sha256": self.library_snapshot_sha256,
+            "selection_method": self.selection_method,
+            "prior_attempt_turn_id": self.prior_attempt_turn_id,
         }
 
 
@@ -266,6 +314,9 @@ PROPOSAL_FIELDS = {
     "rationale",
     "expected_signals",
     "risk",
+    "strategy_id",
+    "move_id",
+    "pivot_reason",
 }
 PROPOSAL_REQUIRED = {"hypothesis", "payload"}
 
@@ -278,6 +329,15 @@ def parse_proposal(
     provider: str = "",
     requested_model: str | None = None,
     effective_model: str | None = None,
+    offered_strategy_ids: frozenset[str] = frozenset({DEFAULT_STRATEGY_ID}),
+    offered_move_ids: frozenset[str] = INITIAL_MOVE_IDS,
+    offered_strategy_moves: dict[str, frozenset[str]] | None = None,
+    fallback_strategy_id: str = "",
+    fallback_move_id: str = "",
+    candidate_strategy_ids: tuple[str, ...] = (),
+    router_version: int = 0,
+    library_snapshot_sha256: str = "",
+    prior_attempt_turn_id: str = "",
 ) -> Proposal:
     """Parse a provider reply into a :class:`Proposal`, or fail closed."""
     try:
@@ -318,6 +378,27 @@ def parse_proposal(
             "target to hide the requested evidence"
         )
 
+    raw_strategy_id = _text(document, "strategy_id", limit=80, required=False)
+    raw_move_id = _text(document, "move_id", limit=80, required=False)
+    selection_method = "model_reranked" if raw_strategy_id and raw_move_id else "legacy_static"
+    if fallback_strategy_id and (
+        not raw_strategy_id or raw_strategy_id not in offered_strategy_ids or not raw_move_id
+    ):
+        strategy_id = fallback_strategy_id
+        move_id = fallback_move_id
+        selection_method = "deterministic_fallback"
+    else:
+        strategy_id = raw_strategy_id or DEFAULT_STRATEGY_ID
+        move_id = raw_move_id or DEFAULT_MOVE_ID
+    if strategy_id not in offered_strategy_ids:
+        raise ContractError("'strategy_id' was not offered by the Core")
+    if move_id not in offered_move_ids:
+        raise ContractError("'move_id' was not offered by the Core")
+    if offered_strategy_moves is not None and move_id not in offered_strategy_moves.get(
+        strategy_id, frozenset()
+    ):
+        raise ContractError("'move_id' does not belong to the selected strategy")
+
     return Proposal(
         proposal_id=proposal_id,
         objective=objective,
@@ -345,6 +426,16 @@ def parse_proposal(
         provider=provider,
         requested_model=requested_model,
         effective_model=effective_model,
+        strategy_id=strategy_id,
+        move_id=move_id,
+        pivot_reason=_text(
+            document, "pivot_reason", limit=MAX_PROSE_CHARS, required=False
+        ),
+        candidate_strategy_ids=candidate_strategy_ids[:8],
+        router_version=router_version,
+        library_snapshot_sha256=library_snapshot_sha256,
+        selection_method=selection_method,
+        prior_attempt_turn_id=prior_attempt_turn_id,
     )
 
 
@@ -360,6 +451,7 @@ class Evaluation:
     suggested_next_steps: tuple[str, ...] = ()
     #: True when a deterministic oracle, not a model, produced the verdict.
     deterministic: bool = False
+    failure_signature: FailureSignature | None = None
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -381,10 +473,19 @@ class Evaluation:
             "evidence_ids": list(self.evidence_ids),
             "suggested_next_steps": list(self.suggested_next_steps),
             "deterministic": self.deterministic,
+            "failure_signature": (
+                self.failure_signature.value if self.failure_signature else None
+            ),
         }
 
 
-EVALUATION_FIELDS = {"verdict", "summary", "observed_signals", "suggested_next_steps"}
+EVALUATION_FIELDS = {
+    "verdict",
+    "summary",
+    "observed_signals",
+    "suggested_next_steps",
+    "failure_signature",
+}
 
 
 def parse_evaluation(
@@ -430,6 +531,14 @@ def parse_evaluation(
             str(entry).strip()[:200] for entry in raw[:MAX_SIGNALS] if str(entry).strip()
         )
 
+    raw_failure = document.get("failure_signature")
+    failure_signature = None
+    if raw_failure not in (None, ""):
+        try:
+            failure_signature = FailureSignature(str(raw_failure))
+        except ValueError:
+            raise ContractError("'failure_signature' is not an allowed value") from None
+
     return Evaluation(
         evaluation_id=evaluation_id,
         verdict=verdict,
@@ -438,6 +547,7 @@ def parse_evaluation(
         evidence_ids=evidence_ids,
         suggested_next_steps=_list("suggested_next_steps"),
         deterministic=deterministic_confirmed,
+        failure_signature=None if deterministic_confirmed else failure_signature,
     )
 
 
@@ -463,6 +573,15 @@ def parse_turn_decision(
     provider: str = "",
     requested_model: str | None = None,
     effective_model: str | None = None,
+    offered_strategy_ids: frozenset[str] = frozenset({DEFAULT_STRATEGY_ID}),
+    offered_move_ids: frozenset[str] = INITIAL_MOVE_IDS,
+    offered_strategy_moves: dict[str, frozenset[str]] | None = None,
+    fallback_strategy_id: str = "",
+    fallback_move_id: str = "",
+    candidate_strategy_ids: tuple[str, ...] = (),
+    router_version: int = 0,
+    library_snapshot_sha256: str = "",
+    prior_attempt_turn_id: str = "",
 ) -> TurnDecision:
     """Parse a combined evaluate-and-plan response without weakening contracts."""
     try:
@@ -497,6 +616,15 @@ def parse_turn_decision(
         provider=provider,
         requested_model=requested_model,
         effective_model=effective_model,
+        offered_strategy_ids=offered_strategy_ids,
+        offered_move_ids=offered_move_ids,
+        offered_strategy_moves=offered_strategy_moves,
+        fallback_strategy_id=fallback_strategy_id,
+        fallback_move_id=fallback_move_id,
+        candidate_strategy_ids=candidate_strategy_ids,
+        router_version=router_version,
+        library_snapshot_sha256=library_snapshot_sha256,
+        prior_attempt_turn_id=prior_attempt_turn_id,
     )
     return TurnDecision(evaluation=evaluation, next_proposal=proposal)
 

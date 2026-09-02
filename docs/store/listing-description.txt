@@ -52,6 +52,13 @@ You pick one objective per assessment. Each one carries a description and the re
 You never type an attack string to get started. The first payload is generated from the objective you chose and the interaction you bound, and every payload remains fully editable before it is sent.
 
 
+MATCHED FRAMING EXPERIMENTS
+
+FrameFuzz compares one normalized unsafe outcome across clean control, explicit injection, and selected framed cases. The cases come from a closed, versioned local template pack rather than model-generated variations. Every case requires a fresh target conversation, explicit reset confirmation, and read-only binding validation.
+
+The comparison records per-case outcomes, scorer provenance, isolation, template identity, reproducible order, and a separate campaign conclusion. Local Core can confirm a framing gap only with deterministic evidence and verified isolation. Direct API uses the same templates but caps the conclusion at potential. An edited template, contaminated control, or missing scorer makes the comparison inconclusive; no gap observed is never presented as proof that a target is secure.
+
+
 EVIDENCE, NOT VIBES
 
 This is the part that separates Stealth Prompt from a chat window with a clever prompt in it.
@@ -96,7 +103,7 @@ Local Core session evidence is written to an artifacts directory you configure. 
 
 SCENARIO FILES: REPRODUCIBLE SETUP, SEPARATE FROM EVIDENCE
 
-A scenario records only how an assessment was configured: objective, provider kind and requested model, mode and limits, sharing policy, target origin, the reviewed interaction binding, and the deterministic scorer configuration.
+A scenario records only how an assessment was configured: objective, provider kind and requested model, mode and limits, sharing policy, target origin, the reviewed interaction binding, deterministic scorer configuration, and optional FrameFuzz settings.
 
 A scenario deliberately contains no captured target responses, no transcripts, no verdicts, no session identifiers, no credentials, no API keys, no tokens, no cookies, no storage and no headers. The parser rejects a credential-shaped or capture-shaped field on import rather than silently dropping it. That separation is what lets a scenario be handed to a colleague or committed to a repository when the evidence itself cannot be.
 

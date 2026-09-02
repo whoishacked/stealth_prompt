@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stealth-prompt"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first, browser-native AI security testing for authorized targets"
 readme = "README.md"
 license = "MIT"
@@ -63,6 +63,7 @@ package-dir = {"" = "src"}
 # The extension is rendered per session from these templates, so they must
 # ship inside the wheel.
 "stealth_prompt.workbench" = ["extension/*.js", "extension/*.tmpl"]
+"stealth_prompt.core" = ["benchmarks/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

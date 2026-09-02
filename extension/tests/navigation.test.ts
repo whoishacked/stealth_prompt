@@ -71,6 +71,32 @@ test('starting a run moves to the live workspace', () => {
   assert.equal(runActive(running()), true);
 });
 
+test('a FrameFuzz reset gate is an active run before its first turn', () => {
+  const state = {
+    ...initialState(),
+    sessionId: 'framefuzz-session',
+    frameFuzzCampaign: {
+      schemaVersion: 1 as const,
+      campaignId: 'campaign-1',
+      status: 'awaiting_context' as const,
+      conclusion: 'inconclusive',
+      templatePack: 'framefuzz-core',
+      templateVersion: 1,
+      randomSeed: 'unit-test-seed',
+      caseOrder: ['clean_control' as const, 'explicit' as const, 'integrity_signature' as const],
+      semanticSeedHash: 'a'.repeat(64),
+      totalCases: 3,
+      completedCases: 0,
+      currentCase: null,
+      cases: [],
+      warnings: [],
+    },
+  };
+
+  assert.equal(runActive(state), true);
+  assert.equal(derivedWorkspace(state), 'test');
+});
+
 test('a potential finding in Auto forces the review workspace', () => {
   const state = paused();
   assert.equal(reviewPending(state), true);

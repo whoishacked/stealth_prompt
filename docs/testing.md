@@ -64,6 +64,18 @@ Potential does not mean confirmed. Confirmation requires a deterministic scorer 
 explicit operator decision. You can confirm and continue when you want to preserve the
 evidence and explore the chain further.
 
+## Compare framing variants
+
+For indirect prompt injection, instruction disclosure, and sensitive-data disclosure,
+Behavior also offers **Compare framing variants (FrameFuzz)**. It replaces adaptive
+payload generation with a closed, deterministic matched experiment. Clean control and
+explicit cases are always included; select at least one framed case.
+
+Every case stops at a fresh-context gate. Open a new target conversation, confirm the
+reset, and let Stealth Prompt revalidate the origin and interaction binding. Auto
+authorization applies to one case only and is revoked at the next boundary. See the
+[FrameFuzz method, conclusions, and safe demo](framefuzz.md).
+
 ## Continue a useful line of investigation
 
 The planner receives the bounded conversation history, current objective, tactic,

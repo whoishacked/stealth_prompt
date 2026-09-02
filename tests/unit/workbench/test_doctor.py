@@ -33,7 +33,7 @@ class FakeEnvironment:
         on_path: Sequence[str] = ("claude", "codex"),
         versions: dict[str, str] | None = None,
         exit_codes: dict[str, int] | None = None,
-        modules: Sequence[str] = ("playwright",),
+        modules: Sequence[str] = ("playwright", "sqlite3"),
         chromium: bool = True,
     ) -> None:
         self._python = python
@@ -141,6 +141,19 @@ class TestPlaywrightChecks:
         check = check_named(report, "chromium")
         assert check.status is CheckStatus.MISSING
         assert "playwright install chromium" in check.remedy
+
+
+class TestStrategyStorageCheck:
+    def test_sqlite_support_passes(self) -> None:
+        report = run_doctor(FakeEnvironment())
+
+        assert check_named(report, "strategy library").status is CheckStatus.OK
+
+    def test_missing_sqlite_support_blocks(self) -> None:
+        report = run_doctor(FakeEnvironment(modules=("playwright",)))
+
+        assert check_named(report, "strategy library").status is CheckStatus.ERROR
+        assert report.ok is False
 
 
 class TestAgentChecks:
