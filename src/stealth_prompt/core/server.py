@@ -52,6 +52,8 @@ from .contracts import (
     ProviderRefused,
     Verdict,
 )
+from .framefuzz import FrameFuzzConfig, FrameFuzzError
+from .framefuzz import capabilities as framefuzz_capabilities
 from .learning import (
     DigestPreview,
     LearningError,
@@ -99,6 +101,7 @@ INBOUND = frozenset(
         "response.manual",
         "auto.start",
         "finding.confirm",
+        "framefuzz.context_confirm",
         "session.export",
         "scenario.export",
         "scenario.preview",
@@ -483,6 +486,7 @@ class CoreServer:
                     "objectives": [objective.value for objective in Objective],
                     "sharing": [policy.value for policy in TargetDataSharing],
                     "learning": self._strategy_store().capabilities(),
+                    "framefuzz": framefuzz_capabilities(),
                 },
             )
         )
@@ -497,6 +501,7 @@ class CoreServer:
                     "providers": capability_report(),
                     "objectives": objective_catalog(),
                     "learning": self._strategy_store().capabilities(),
+                    "framefuzz": framefuzz_capabilities(),
                 },
             )
         )
@@ -584,6 +589,12 @@ class CoreServer:
             objective = Objective(objective_raw)
         except ValueError as exc:
             raise CoreError(str(exc), code="invalid_configuration") from None
+        try:
+            framefuzz_config = FrameFuzzConfig.from_dict(
+                payload.get("framefuzz"), objective=objective
+            )
+        except FrameFuzzError as exc:
+            raise CoreError(str(exc), code="invalid_framefuzz") from None
         if (
             mode is AssistMode.AUTO
             and max_turns == 0
@@ -615,6 +626,7 @@ class CoreServer:
             strategy_store=self._strategy_store(),
             learning_enabled=learning_enabled,
             use_private_strategies=use_private_strategies,
+            framefuzz_config=framefuzz_config,
         )
         if previous is not None:
             # Carry the reviewed binding across a reconfiguration so the
@@ -670,6 +682,27 @@ class CoreServer:
         session = self._require_session()
         session.record_conversation(_text(payload, "text", limit=MAX_FRAME_BYTES // 2))
         await send(encode("session.status", {"session": session.summary()}))
+
+    async def _on_framefuzz_context_confirm(
+        self, payload: dict[str, Any], send: Any
+    ) -> None:
+        """Open one case after the operator reset and read-only binding check."""
+        session = self._require_session()
+        verified = _boolean(payload, "verified", default=True)
+        binding_validated = _boolean(payload, "binding_validated", default=False)
+        case = session.confirm_framefuzz_context(
+            verified=verified, binding_validated=binding_validated
+        )
+        await send(
+            encode(
+                "framefuzz.ready",
+                {
+                    "case": case,
+                    "session": session.summary(),
+                    "auto_authorized": False,
+                },
+            )
+        )
 
     async def _on_proposal_request(self, payload: dict[str, Any], send: Any) -> None:
         session = self._require_session()
@@ -798,6 +831,10 @@ class CoreServer:
         await send(encode("evaluation.pending", {"stage": "evaluating"}))
         started_at = time.monotonic()
         wants_next = force_next or session.mode in {AssistMode.GUIDED, AssistMode.AUTO}
+        # A matched experiment must stop at the case boundary.  Generating a
+        # second proposal here would contaminate the target conversation.
+        if session.framefuzz is not None:
+            wants_next = False
         has_room = session.has_turns_remaining()
         combined = (
             wants_next
@@ -819,6 +856,27 @@ class CoreServer:
             "elapsed_ms": round((time.monotonic() - started_at) * 1000),
             "planning_strategy": "combined" if combined else "sequential",
         }
+        if session.framefuzz is not None:
+            campaign = session.framefuzz.to_dict()
+            result["framefuzz"] = campaign
+            session.write_export()
+            if session.mode is AssistMode.AUTO and evaluation.verdict is Verdict.POTENTIAL:
+                if session.potential_finding_action is PotentialFindingAction.REVIEW:
+                    session.stop_auto()
+                    result["auto_stopped"] = "potential_review"
+                elif session.potential_finding_action is PotentialFindingAction.STOP:
+                    session.stop_auto()
+                    result["auto_stopped"] = "potential_found"
+                    result["auto_finished"] = "potential_found"
+            if "auto_stopped" not in result:
+                session.stop_auto()
+                if campaign["status"] == "complete":
+                    result["framefuzz_finished"] = campaign["conclusion"]
+                    result["auto_finished"] = "framefuzz_complete"
+                else:
+                    result["auto_stopped"] = "framefuzz_context_reset"
+            await send(encode("evaluation", result))
+            return
         if combined:
             if automatic_proposal is not None:
                 result["next_proposal"] = automatic_proposal.to_dict()
@@ -913,7 +971,19 @@ class CoreServer:
             )
         )
         if continue_testing:
-            await self._on_auto_start({}, send)
+            if session.framefuzz is None:
+                await self._on_auto_start({}, send)
+            else:
+                await send(
+                    encode(
+                        "session.status",
+                        {
+                            "session": session.summary(),
+                            "framefuzz": session.framefuzz.to_dict(),
+                            "auto_stopped": "framefuzz_context_reset",
+                        },
+                    )
+                )
 
     async def _on_cancel(self, payload: dict[str, Any], send: Any) -> None:
         session = self.state.session

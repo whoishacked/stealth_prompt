@@ -38,9 +38,10 @@ from .assistant import (
     ResponseSource,
 )
 from .contracts import Objective
+from .framefuzz import FrameFuzzConfig, FrameFuzzError
 
-SCENARIO_SCHEMA_VERSION = 2
-SUPPORTED_SCENARIO_VERSIONS = frozenset({1, SCENARIO_SCHEMA_VERSION})
+SCENARIO_SCHEMA_VERSION = 3
+SUPPORTED_SCENARIO_VERSIONS = frozenset({1, 2, SCENARIO_SCHEMA_VERSION})
 SCENARIO_KIND = "stealth_prompt_scenario"
 
 #: A scenario is small by construction. The cap stops a hostile file from
@@ -69,6 +70,7 @@ TOP_LEVEL_FIELDS = {
     "scorers",
     "initial_conversation",
     "expected",
+    "framefuzz",
 }
 
 #: Key fragments that must never appear in a scenario. Matching is on the
@@ -130,6 +132,7 @@ class Scenario:
     #: Whether replay may read the existing on-page conversation for context.
     initial_conversation: str = "none"
     expected: dict[str, Any] = field(default_factory=dict)
+    framefuzz: FrameFuzzConfig = field(default_factory=FrameFuzzConfig)
     schema_version: int = SCENARIO_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -165,6 +168,7 @@ class Scenario:
             ],
             "initial_conversation": self.initial_conversation,
             "expected": dict(self.expected),
+            "framefuzz": self.framefuzz.to_dict(),
         }
 
     def to_json(self) -> str:
@@ -219,6 +223,7 @@ class Scenario:
             "max_turns": self.max_turns,
             "max_duration_seconds": self.max_duration_seconds,
             "expected": dict(self.expected),
+            "framefuzz": self.framefuzz.to_dict(),
             # Stated on every preview so it is never a surprise at replay time.
             "auto_send_authorized": False,
             "requires_revalidation": True,
@@ -336,7 +341,7 @@ def parse_scenario(raw: str | bytes | dict[str, Any]) -> Scenario:
     if version not in SUPPORTED_SCENARIO_VERSIONS:
         raise ScenarioVersionError(
             f"scenario schema version {version!r} is not supported; "
-            f"this build reads versions 1 and {SCENARIO_SCHEMA_VERSION}"
+            f"this build reads versions 1, 2 and {SCENARIO_SCHEMA_VERSION}"
         )
     kind = document.get("kind")
     if kind != SCENARIO_KIND:
@@ -383,6 +388,14 @@ def parse_scenario(raw: str | bytes | dict[str, Any]) -> Scenario:
             "unsupported potential finding action "
             f"{document.get('potential_finding_action')!r}"
         ) from None
+
+    try:
+        framefuzz = FrameFuzzConfig.from_dict(
+            document.get("framefuzz") if version >= 3 else None,
+            objective=objective,
+        )
+    except FrameFuzzError as exc:
+        raise ScenarioError(f"scenario FrameFuzz configuration is invalid: {exc}") from None
 
     sharing = _string(document, "sharing", limit=20, default="none")
     if sharing not in {"none", "redacted", "full"}:
@@ -443,6 +456,7 @@ def parse_scenario(raw: str | bytes | dict[str, Any]) -> Scenario:
             "verdict": _string(expected, "verdict", limit=40),
             "notes": _string(expected, "notes", limit=MAX_DESCRIPTION_CHARS),
         },
+        framefuzz=framefuzz,
     )
 
 
@@ -472,4 +486,9 @@ def scenario_from_session(session: Any, *, name: str, description: str = "") -> 
         target_origin=session.origin,
         binding=session.binding,
         scorers=tuple(session.oracles),
+        framefuzz=(
+            session.framefuzz.config
+            if getattr(session, "framefuzz", None) is not None
+            else FrameFuzzConfig()
+        ),
     )

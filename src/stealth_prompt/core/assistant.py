@@ -54,6 +54,7 @@ from .contracts import (
     parse_proposal,
     parse_turn_decision,
 )
+from .framefuzz import FrameFuzzCampaign, FrameFuzzConfig, FrameFuzzError
 from .learning import (
     DigestPreview,
     LearningCandidate,
@@ -390,6 +391,7 @@ class AssistantSession:
         project_scope_key: str = "",
         learning_enabled: bool = False,
         use_private_strategies: bool = True,
+        framefuzz_config: FrameFuzzConfig | None = None,
     ) -> None:
         self.session_id = session_id or new_id("session")
         self.provider = provider
@@ -409,6 +411,11 @@ class AssistantSession:
         self.project_scope_key = project_scope_key
         self.learning_enabled = learning_enabled
         self.use_private_strategies = use_private_strategies
+        self.framefuzz = (
+            FrameFuzzCampaign(framefuzz_config, objective)
+            if framefuzz_config is not None and framefuzz_config.enabled
+            else None
+        )
 
         self.binding: InteractionBinding | None = None
         self.origin = ""
@@ -496,8 +503,17 @@ class AssistantSession:
                 "auto mode requires input, send control, and response container"
             )
         if self.sharing is TargetDataSharing.NONE:
+            if self.framefuzz is None:
+                raise ContractError(
+                    "auto mode requires redacted or full sharing so replies can guide the agent"
+                )
+            if not self.oracles:
+                raise ContractError(
+                    "FrameFuzz Auto with no response sharing requires a deterministic scorer"
+                )
+        if self.framefuzz is not None and self.framefuzz.awaiting_context:
             raise ContractError(
-                "auto mode requires redacted or full sharing so replies can guide the agent"
+                "confirm a fresh target context and revalidate the binding before this case"
             )
         if (
             self.max_turns == 0
@@ -551,7 +567,11 @@ class AssistantSession:
             and time.monotonic() - self._auto_started_at >= self.max_duration_seconds
         ):
             return "max_duration"
-        if self.verdict is Verdict.CONFIRMED and not self._continue_after_confirmed:
+        if (
+            self.framefuzz is None
+            and self.verdict is Verdict.CONFIRMED
+            and not self._continue_after_confirmed
+        ):
             return "confirmed"
         return ""
 
@@ -573,6 +593,31 @@ class AssistantSession:
             origin=binding.origin,
             summary=binding.summary(),
         )
+
+    def confirm_framefuzz_context(
+        self, *, verified: bool, binding_validated: bool
+    ) -> dict[str, Any]:
+        """Open exactly one case after a human reset decision and read-only check."""
+        if self.framefuzz is None:
+            raise ContractError("FrameFuzz is not enabled for this session")
+        if self.binding is None or not self.binding.complete:
+            raise ContractError("a complete interaction binding is required")
+        try:
+            case = self.framefuzz.confirm_context(
+                verified=verified, binding_validated=binding_validated
+            )
+        except FrameFuzzError as exc:
+            raise ContractError(str(exc)) from None
+        self.auto_authorized = False
+        self.timeline.record(
+            EventKind.FRAMEFUZZ_CONTEXT_CONFIRMED,
+            source=EventSource.OPERATOR,
+            case_id=case.case_id,
+            strategy=case.strategy.value,
+            context_isolation=case.context_isolation.value,
+            binding_validation=case.binding_validation,
+        )
+        return case.to_dict()
 
     def record_conversation(self, text: str) -> None:
         """Store an operator-captured snapshot of the existing conversation."""
@@ -925,6 +970,17 @@ class AssistantSession:
         if not self.has_turns_remaining():
             raise ContractError(f"turn limit of {self.max_turns} reached")
 
+        if self.framefuzz is not None:
+            try:
+                proposal = self.framefuzz.proposal(provider=self.provider, model=self.model)
+            except FrameFuzzError as exc:
+                raise ContractError(str(exc)) from None
+            turn = self._record_proposal(proposal, source=EventSource.CORE)
+            self.framefuzz.register_proposal(
+                turn_id=turn.turn_id, reviewed_payload=proposal.payload
+            )
+            return proposal
+
         if instruction.strip():
             self.instruction, _ = bound(instruction.strip(), max_bytes=4096)
         route = self._strategy_route()
@@ -955,12 +1011,14 @@ class AssistantSession:
         self._record_proposal(proposal)
         return proposal
 
-    def _record_proposal(self, proposal: Proposal) -> Turn:
+    def _record_proposal(
+        self, proposal: Proposal, *, source: EventSource = EventSource.PROVIDER
+    ) -> Turn:
         turn = Turn(turn_id=new_id("turn"), proposal=proposal)
         self.turns.append(turn)
         self.timeline.record(
             EventKind.PROPOSAL_GENERATED,
-            source=EventSource.PROVIDER,
+            source=source,
             turn_id=turn.turn_id,
             proposal_id=proposal.proposal_id,
             provider=self.provider,
@@ -1082,7 +1140,35 @@ class AssistantSession:
                 )
 
         self._record_evaluation(turn, evaluation)
+        self._complete_framefuzz_case(turn, evaluation)
         return evaluation
+
+    def _complete_framefuzz_case(self, turn: Turn, evaluation: Evaluation) -> None:
+        if self.framefuzz is None:
+            return
+        try:
+            case = self.framefuzz.complete_case(
+                turn_id=turn.turn_id,
+                reviewed_payload=turn.approved_payload or (
+                    turn.proposal.payload if turn.proposal else ""
+                ),
+                evaluation_verdict=evaluation.verdict,
+                deterministic=evaluation.deterministic,
+                scorer_results=turn.scorer_results,
+            )
+        except FrameFuzzError as exc:
+            raise ContractError(str(exc)) from None
+        # A case is an authorization boundary even when Auto is active.
+        self.auto_authorized = False
+        self.timeline.record(
+            EventKind.FRAMEFUZZ_CASE_COMPLETED,
+            source=EventSource.CORE,
+            turn_id=turn.turn_id,
+            case_id=case.case_id,
+            strategy=case.strategy.value,
+            outcome=case.outcome,
+            context_isolation=case.context_isolation.value,
+        )
 
     def _capture_response(
         self, response: str, *, source: EventSource
@@ -1133,6 +1219,9 @@ class AssistantSession:
         A deterministic match short-circuits immediately. This method is used
         only when target text may be shared and a next proposal is wanted.
         """
+        if self.framefuzz is not None:
+            evaluation = await self.evaluate(response, source=source)
+            return evaluation, None
         if not self.has_turns_remaining():
             raise ContractError(f"turn limit of {self.max_turns} reached")
         turn, text, matched, evidence_ids = self._capture_response(
@@ -1214,6 +1303,11 @@ class AssistantSession:
             deterministic=True,
         )
         turn.evaluation = confirmed
+        if self.framefuzz is not None:
+            try:
+                self.framefuzz.confirm_current_result(turn_id=turn.turn_id)
+            except FrameFuzzError as exc:
+                raise ContractError(str(exc)) from None
         self._continue_after_confirmed = continue_testing
         self.timeline.record(
             EventKind.EVALUATION_COMPLETED,
@@ -1257,6 +1351,7 @@ class AssistantSession:
             "evaluation": evaluated.to_dict() if evaluated else None,
             "next_proposal": pending.to_dict() if pending else None,
             "auto_stopped": "potential_review" if paused_for_review else "",
+            "framefuzz": self.framefuzz.to_dict() if self.framefuzz else None,
         }
 
     def summary(self) -> dict[str, Any]:
@@ -1296,6 +1391,7 @@ class AssistantSession:
             "provider_calls": self.provider_calls,
             "provider_latency_ms": self.provider_latency_ms,
             "usage": self.usage.to_dict(),
+            "framefuzz": self.framefuzz.to_dict() if self.framefuzz else None,
         }
 
     def export(self) -> dict[str, Any]:
@@ -1312,6 +1408,7 @@ class AssistantSession:
                 turn.to_dict(include_text=self.store_transcript) for turn in self.turns
             ],
             "timeline": self.timeline.to_dict(),
+            "framefuzz": self.framefuzz.to_dict() if self.framefuzz else None,
         }
 
     def write_export(self) -> str | None:

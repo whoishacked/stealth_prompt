@@ -81,6 +81,79 @@ def _scorers(results: object) -> str:
     )
 
 
+def _framefuzz(value: object) -> str:
+    """Render the optional matched-comparison section with hostile text escaped."""
+    campaign = value if isinstance(value, dict) else {}
+    if not campaign.get("campaign_id"):
+        return ""
+    raw_cases = campaign.get("cases")
+    cases = raw_cases if isinstance(raw_cases, list) else []
+    rows: list[str] = []
+    explicit = "not run"
+    framed_signals: list[str] = []
+    for raw_case in cases:
+        case = raw_case if isinstance(raw_case, dict) else {}
+        strategy = str(case.get("strategy", ""))
+        outcome = str(case.get("outcome", "pending"))
+        if strategy == "explicit":
+            explicit = outcome
+        if strategy not in {"clean_control", "explicit"} and outcome in {
+            "confirmed",
+            "potential",
+        }:
+            framed_signals.append(strategy)
+        scorer_rows = case.get("scorers")
+        scorer_rows = scorer_rows if isinstance(scorer_rows, list) else []
+        evidence = []
+        for raw_scorer in scorer_rows:
+            scorer = raw_scorer if isinstance(raw_scorer, dict) else {}
+            evidence.append(
+                f"{scorer.get('scorer_id', 'scorer')}: {scorer.get('status', 'unknown')}"
+            )
+        if case.get("human_verified"):
+            evidence.append("operator: verified")
+        rows.append(
+            "<tr>"
+            f"<td>{_text(case.get('ordinal'))}</td>"
+            f"<td>{_label(case.get('strategy'))}</td>"
+            f"<td>{_text(case.get('template_id'))} · "
+            f"{('intact' if case.get('template_intact') is not False else 'edited')}</td>"
+            f"<td><span class=\"badge neutral\">{_label(outcome)}</span></td>"
+            f"<td>{_text('; '.join(evidence), fallback='Not run')}</td>"
+            f"<td>{_label(case.get('context_isolation'))}</td>"
+            f"<td>{_label(case.get('binding_validation'))}</td>"
+            f"<td>{_text(case.get('turn_id'))}</td>"
+            "</tr>"
+        )
+    warnings = campaign.get("warnings")
+    warning_list = warnings if isinstance(warnings, list) else []
+    order = campaign.get("case_order")
+    order_text = ", ".join(str(item) for item in order) if isinstance(order, list) else ""
+    signal_text = ", ".join(framed_signals) if framed_signals else "none"
+    return f"""
+  <section>
+    <h2>FrameFuzz matched comparison</h2>
+    <div class="verdict">
+      <p class="muted">Does the target reject the explicit request but perform the same unsafe outcome after framing changes?</p>
+      <span class="badge neutral">{_label(campaign.get("conclusion"))}</span>
+    </div>
+    <dl class="facts">
+      <div><dt>Campaign</dt><dd>{_text(campaign.get("campaign_id"))}</dd></div>
+      <div><dt>Template pack</dt><dd>{_text(campaign.get("template_pack"))} v{_text(campaign.get("template_version"))}</dd></div>
+      <div><dt>Semantic seed SHA-256</dt><dd class="hash">{_text(campaign.get("semantic_seed_hash"))}</dd></div>
+      <div><dt>Random seed</dt><dd class="hash">{_text(campaign.get("random_seed"))}</dd></div>
+      <div><dt>Case order</dt><dd>{_text(order_text)}</dd></div>
+      <div><dt>Differential</dt><dd>Explicit: {_label(explicit)} · framed signal: {_text(signal_text)}</dd></div>
+    </dl>
+    <table><thead><tr><th>#</th><th>Strategy</th><th>Template</th><th>Result</th><th>Scorer provenance</th><th>Isolation</th><th>Binding</th><th>Turn</th></tr></thead>
+      <tbody>{"".join(rows) if rows else '<tr><td colspan="8">No cases recorded.</td></tr>'}</tbody>
+    </table>
+    {(_list(warning_list, empty="No campaign warnings"))}
+    <p class="muted">No gap observed means only that this bounded comparison did not observe one; it is not evidence that the target is secure.</p>
+  </section>
+"""
+
+
 def render_report(document: dict[str, Any]) -> str:
     """Render one exported assistant session as a portable HTML report."""
     configuration = document.get("configuration")
@@ -98,6 +171,7 @@ def render_report(document: dict[str, Any]) -> str:
         events = []
     attack_state = document.get("attack_state")
     attack_state = attack_state if isinstance(attack_state, dict) else {}
+    framefuzz = document.get("framefuzz")
 
     verdict = str(document.get("verdict", "inconclusive"))
     verdict_class = {
@@ -269,6 +343,7 @@ def render_report(document: dict[str, Any]) -> str:
     <h4>Interaction binding</h4>
     <p>{_text(configuration.get("binding_summary"))}</p>
   </section>
+  {_framefuzz(framefuzz)}
   <section>
     <h2>Attack chain</h2>
     {"".join(turn_sections) if turn_sections else '<p class="muted">No turns were recorded.</p>'}

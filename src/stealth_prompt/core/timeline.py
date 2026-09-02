@@ -46,6 +46,8 @@ class EventKind(str, Enum):
     PAYLOAD_SENT = "payload.sent"
     RESPONSE_CAPTURED = "response.captured"
     EVALUATION_COMPLETED = "evaluation.completed"
+    FRAMEFUZZ_CONTEXT_CONFIRMED = "framefuzz.context_confirmed"
+    FRAMEFUZZ_CASE_COMPLETED = "framefuzz.case_completed"
     SESSION_STOPPED = "session.stopped"
     ERROR = "error"
 

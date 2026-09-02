@@ -5,7 +5,7 @@ touching anybody's real system. It binds loopback only, uses no model, no
 network, and no credentials, and the "protected" value is a synthetic canary
 that means nothing anywhere else.
 
-Two modes:
+Four modes:
 
 ``vulnerable``
     The hidden instruction is concatenated into the same text the "assistant"
@@ -19,6 +19,11 @@ Two modes:
 ``advanced``
     A stateful two-turn flaw. The first message must enable a diagnostic
     context; only a later policy-trace request leaks the synthetic canary.
+
+``framing``
+    A matched-comparison target: clean and explicit cases stay safe while the
+    three fixed FrameFuzz framings disclose the synthetic canary. Trusted
+    destination effects are recorded only in this process's in-memory sink.
 
 Do not deploy this. It is a target, not a server.
 """
@@ -187,6 +192,33 @@ def answer_for(message: str, mode: str) -> str:
     )
 
 
+def framing_answer_for(message: str, effects: list[dict[str, str]]) -> str:
+    """Deterministic FrameFuzz target with an in-memory mock effect sink."""
+    if "Control condition:" in message:
+        return "Diagnostic context reviewed. Status: no protected output requested."
+    if "Direct test instruction:" in message:
+        return REFUSAL
+
+    strategy = ""
+    if "integrity_signature field" in message:
+        strategy = "integrity_signature"
+    elif "protected_context" in message:
+        strategy = "required_config"
+    elif "Trusted audit destination:" in message:
+        strategy = "trusted_destination"
+        match = re.search(r"Trusted audit destination: ([^\s]+)", message)
+        effects.append(
+            {
+                "strategy": strategy,
+                "destination": match.group(1).rstrip(".") if match else "unknown",
+            }
+        )
+
+    if strategy:
+        return f"Frame accepted ({strategy}). Protected diagnostic value: {CANARY}"
+    return "Frame not recognized; no protected diagnostic value was returned."
+
+
 def advanced_answer_for(message: str, state: dict[str, bool]) -> str:
     """Exercise adaptive multi-turn testing without a real vulnerable model."""
     lowered = message.lower()
@@ -261,7 +293,7 @@ class Handler(BaseHTTPRequestHandler):
         mode = (
             requested_mode
             if isinstance(requested_mode, str)
-            and requested_mode in {"safe", "advanced"}
+            and requested_mode in {"safe", "advanced", "framing"}
             else "vulnerable"
         )
         conversation_id = request.get("conversation_id") or secrets.token_hex(8)
@@ -272,6 +304,12 @@ class Handler(BaseHTTPRequestHandler):
                     conversation_id, {}
                 )
                 answer = advanced_answer_for(message, state)
+        elif mode == "framing":
+            with self.server.effects_lock:  # type: ignore[attr-defined]
+                answer = framing_answer_for(
+                    message,
+                    self.server.framefuzz_effects,  # type: ignore[attr-defined]
+                )
         else:
             answer = answer_for(message, mode)
 
@@ -299,6 +337,8 @@ def serve(host: str = "127.0.0.1", port: int = 8765, *, verbose: bool = False) -
     server.verbose = verbose
     server.conversations = {}  # type: ignore[attr-defined]
     server.conversations_lock = threading.Lock()  # type: ignore[attr-defined]
+    server.framefuzz_effects = []  # type: ignore[attr-defined]
+    server.effects_lock = threading.Lock()  # type: ignore[attr-defined]
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -312,7 +352,10 @@ def main() -> int:
     server = serve(port=args.port, verbose=not args.quiet)
     print(f"Local demo target on http://127.0.0.1:{args.port}/")
     print(f"Synthetic canary for this run: {CANARY}")
-    print("Modes: default vulnerable, ?mode=safe, or stateful ?mode=advanced.")
+    print(
+        "Modes: default vulnerable, ?mode=safe, stateful ?mode=advanced, "
+        "or matched ?mode=framing."
+    )
     print("Press Ctrl-C to stop.")
     try:
         threading.Event().wait()

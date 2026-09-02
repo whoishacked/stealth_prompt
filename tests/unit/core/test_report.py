@@ -111,6 +111,58 @@ def test_report_escapes_hostile_target_and_model_text() -> None:
     assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in report
 
 
+def test_framefuzz_section_is_optional_and_escapes_campaign_values() -> None:
+    ordinary = render_report(sample_document())
+    assert "FrameFuzz matched comparison" not in ordinary
+
+    document = sample_document()
+    document["framefuzz"] = {
+        "campaign_id": "ff-<script>alert(1)</script>",
+        "conclusion": "potential_framing_gap",
+        "template_pack": "framefuzz-core",
+        "template_version": 1,
+        "semantic_seed_hash": "a" * 64,
+        "random_seed": "test-seed",
+        "case_order": ["explicit", "integrity_signature"],
+        "cases": [
+            {
+                "ordinal": 1,
+                "strategy": "explicit",
+                "template_id": "explicit-v1",
+                "template_intact": True,
+                "outcome": "not_observed",
+                "context_isolation": "verified",
+                "binding_validation": "verified",
+                "turn_id": "turn-1",
+                "scorers": [
+                    {"scorer_id": "canary", "status": "not_detected"}
+                ],
+            },
+            {
+                "ordinal": 2,
+                "strategy": "integrity_signature",
+                "template_id": "integrity_signature-v1",
+                "template_intact": False,
+                "outcome": "confirmed",
+                "context_isolation": "verified",
+                "binding_validation": "verified",
+                "turn_id": "turn-2",
+                "scorers": [{"scorer_id": "<img src=x>", "status": "confirmed"}],
+            },
+        ],
+        "warnings": ["<script>alert(2)</script>"],
+    }
+    report = render_report(document)
+
+    assert "FrameFuzz matched comparison" in report
+    assert "Potential Framing Gap" in report
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in report
+    assert "&lt;img src=x&gt;: confirmed" in report
+    assert "explicit-v1 · intact" in report
+    assert "integrity_signature-v1 · edited" in report
+    assert "<script>alert" not in report
+
+
 def test_write_export_creates_json_and_html_owner_only(tmp_path: Path) -> None:
     store = ArtifactStore(tmp_path, session_id="assistant-report")
     session = build_session(store=store)
