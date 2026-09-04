@@ -4,6 +4,26 @@ All notable changes are documented here. The project follows Semantic Versioning
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-04
+
+### Changed
+
+- Upgraded the extension build toolchain to TypeScript 7.0.2, esbuild 0.28.2,
+  and Chrome types 0.2.7 while retaining Node 22 types to match the supported
+  build runtime.
+- Upgraded the documentation builder to Zensical 0.0.57.
+- Upgraded the GitHub CI and release actions to their maintained Node 24-based
+  major versions.
+- Made extension installs deterministic by keeping the external npm audit call
+  out of CI and release build steps.
+
+### Security
+
+- Replaced the unsupported Node 20 release action with the maintained
+  `softprops/action-gh-release@v3` line.
+- Updated esbuild past the local development server path-traversal fix and
+  explicitly allowlisted only the installed esbuild postinstall version.
+
 ## [0.3.0] - 2026-09-02
 
 ### Added

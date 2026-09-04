@@ -11,11 +11,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -28,7 +28,7 @@ jobs:
       - name: Build extension
         working-directory: extension
         run: |
-          npm ci
+          npm ci --no-audit --no-fund
           npm run lint
           npm test
           npm run build
@@ -36,7 +36,7 @@ jobs:
         working-directory: extension/dist
         run: zip -r ../stealth-prompt-extension.zip .
       - name: Publish GitHub release artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
