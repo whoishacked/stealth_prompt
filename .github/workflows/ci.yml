@@ -23,7 +23,7 @@ jobs:
           cache-dependency-path: extension/package-lock.json
       - name: Install
         working-directory: extension
-        run: npm ci
+        run: npm ci --no-audit --no-fund
       - name: Lint and type check
         working-directory: extension
         run: npm run lint
@@ -94,7 +94,7 @@ jobs:
       - name: Build extension
         working-directory: extension
         run: |
-          npm ci
+          npm ci --no-audit --no-fund
           npm run build
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium

@@ -28,7 +28,7 @@ jobs:
       - name: Build extension
         working-directory: extension
         run: |
-          npm ci
+          npm ci --no-audit --no-fund
           npm run lint
           npm test
           npm run build

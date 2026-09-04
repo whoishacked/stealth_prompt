@@ -14,6 +14,8 @@ All notable changes are documented here. The project follows Semantic Versioning
 - Upgraded the documentation builder to Zensical 0.0.57.
 - Upgraded the GitHub CI and release actions to their maintained Node 24-based
   major versions.
+- Made extension installs deterministic by keeping the external npm audit call
+  out of CI and release build steps.
 
 ### Security
 

@@ -101,7 +101,7 @@ For local extension development, build and load the unpacked version instead:
 
 ```bash
 cd extension
-npm ci
+npm ci --no-audit --no-fund
 npm run build      # produces extension/dist/
 ```
 
