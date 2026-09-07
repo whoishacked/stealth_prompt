@@ -45,9 +45,9 @@ Auto is bounded on purpose. The default budget is 20 turns with unlimited time; 
 
 WHAT IT TESTS FOR
 
-The objective catalogue covers direct prompt injection, indirect prompt injection, hidden and system instruction disclosure, sensitive-data disclosure, role confusion, goal hijacking, RAG manipulation, memory poisoning, tool misuse, excessive agency, approval bypass, and unsafe output handling.
+The objective catalogue covers direct prompt injection, indirect prompt injection, hidden and system instruction disclosure, sensitive-data disclosure, role confusion, goal hijacking, RAG manipulation, memory poisoning, tool misuse, excessive agency, approval bypass, and unsafe output handling. If you do not yet know which category fits the target, Auto objective maps visible capabilities and selects an evidence-backed path.
 
-You pick one objective per assessment. Each one carries a description and the relevant OWASP LLM category, so a report reads meaningfully to someone who was not sitting next to you.
+You pick a named objective or delegate that selection to Auto. Each named objective carries a description and the relevant OWASP LLM category, so a report reads meaningfully to someone who was not sitting next to you. Auto behavior remains a separate control for bounded sending.
 
 You never type an attack string to get started. The first payload is generated from the objective you chose and the interaction you bound, and every payload remains fully editable before it is sent.
 

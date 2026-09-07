@@ -38,8 +38,9 @@ Use `stealth-prompt serve --port <port>` for a non-default port and enter the sa
 in the extension. Core also owns the private, revisioned strategy library. It uses
 `.stealth-prompt/strategies.sqlite3` by default; pass `--strategy-db <file>` to keep it
 elsewhere. Strategy snapshots contain reusable abstractions, not captured replies or
-credentials. Before each planning turn, Core filters active strategies by objective,
-scope, mode, observed surface/capabilities, response pattern, and exhausted moves. It
+credentials. Before each planning turn, Core filters active strategies by objective
+(or searches across objectives when Auto is selected), scope, mode, observed
+surface/capabilities, response pattern, and exhausted moves. It
 then exposes at most three bounded strategy summaries to the planner. Target and project
 scope keys are SHA-256 identifiers rather than stored origins.
 

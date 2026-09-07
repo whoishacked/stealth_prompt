@@ -288,6 +288,7 @@ const SHARING_LABELS: Record<Sharing, string> = {
 };
 
 const OBJECTIVE_LABELS: Record<string, string> = {
+  auto: 'Auto — let AI choose',
   prompt_injection: 'Prompt injection',
   indirect_prompt_injection: 'Indirect prompt injection',
   instruction_disclosure: 'Hidden/system instruction disclosure',
@@ -510,6 +511,19 @@ function renderConnection(root: HTMLElement): void {
     root.appendChild(node);
     return;
   }
+
+  const coreHelp = el('div', 'scope-note');
+  coreHelp.appendChild(
+    el('span', '', 'Local Core enables CLI providers, local models, durable reports, and private strategy learning. '),
+  );
+  const coreGuide = document.createElement('a');
+  coreGuide.id = 'core-setup-docs-link';
+  coreGuide.href = 'https://whoishacked.com/stealth_prompt/connections/';
+  coreGuide.target = '_blank';
+  coreGuide.rel = 'noreferrer';
+  coreGuide.textContent = 'What is Local Core? Setup guide →';
+  coreHelp.appendChild(coreGuide);
+  node.appendChild(coreHelp);
 
   node.appendChild(
     el(
@@ -1093,6 +1107,7 @@ function renderMode(root: HTMLElement): void {
 
   if (state.settings.objective === 'custom') {
     const custom = document.createElement('textarea');
+    custom.className = 'custom-objective';
     custom.value = state.settings.customObjective;
     custom.placeholder = 'Describe the authorized objective.';
     custom.onchange = () => dispatch({ type: 'settings', patch: { customObjective: custom.value } });

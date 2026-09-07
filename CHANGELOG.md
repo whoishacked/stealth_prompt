@@ -4,6 +4,22 @@ All notable changes are documented here. The project follows Semantic Versioning
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-07
+
+### Added
+
+- Added **Auto — let AI choose** as an objective for assessments where the most
+  relevant vulnerability category is not known in advance. Core and Direct API first
+  map visible capabilities, then select and maintain an evidence-backed test path.
+- Added an always-visible Local Core explanation and setup link beside the Local Core
+  connection controls.
+
+### Changed
+
+- Clarified in the UI and documentation that Auto behavior controls bounded sending,
+  while the Auto objective only delegates vulnerability-category selection.
+- Increased the separation between the objective selector and Custom Objective input.
+
 ## [0.3.1] - 2026-09-04
 
 ### Changed

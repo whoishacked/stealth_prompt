@@ -106,6 +106,7 @@ select, input, textarea {
 }
 select:hover, input:hover, textarea:hover { border-color: var(--line-strong); }
 textarea { min-height: 84px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.custom-objective { margin-top: var(--s2); }
 button {
   min-height: var(--control);
   margin: 0;

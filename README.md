@@ -54,10 +54,11 @@ the selected review/stop/continue policy, and a terminal result opens the
 terminal summary in Reports. A reload reopens the workspace the assessment is
 actually in.
 
-The current objective catalogue covers direct and indirect prompt injection,
-instruction and sensitive-data disclosure, role confusion, goal hijacking, RAG
-manipulation, memory poisoning, tool misuse, excessive agency, approval bypass and
-unsafe output handling.
+Choose a concrete objective from the catalogue, or use **Auto — let AI choose** to map
+the target's visible capabilities and pursue the most relevant evidence-backed test
+path. The catalogue covers direct and indirect prompt injection, instruction and
+sensitive-data disclosure, role confusion, goal hijacking, RAG manipulation, memory
+poisoning, tool misuse, excessive agency, approval bypass and unsafe output handling.
 
 ## Quick start
 
@@ -186,7 +187,7 @@ changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Current status
 
-Version 0.3 is under active development. The browser extension and Local Core are the
+Version 0.4 is under active development. The browser extension and Local Core are the
 primary product path.
 
 The previous automation-browser Workbench and original Selenium runner remain for

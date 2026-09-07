@@ -1460,7 +1460,9 @@ def route_strategies(
     scope_score = {"target": 400, "project": 300, "private_global": 200, "built_in": 100}
     ranked: list[tuple[int, str, dict[str, Any]]] = []
     for document in documents:
-        if document.get("status") != "active" or objective.value not in document["objective_ids"]:
+        if document.get("status") != "active":
+            continue
+        if objective is not Objective.AUTO and objective.value not in document["objective_ids"]:
             continue
         scope = document["scope"]
         if not include_private and scope != "built_in":

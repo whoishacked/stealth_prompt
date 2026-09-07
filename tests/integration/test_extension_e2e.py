@@ -2119,6 +2119,23 @@ class TestWorkspaceFlow:
                         return !!row && !row.querySelector('button');
                     }"""
                 )
+                initial["coreGuide"] = await panel.get_attribute(
+                    "#core-setup-docs-link", "href"
+                )
+                await open_step(panel, "Behavior")
+                initial["autoOption"] = await panel.locator(
+                    "#mode select option[value='auto']"
+                ).text_content()
+                await panel.select_option("#mode select", "custom")
+                await panel.wait_for_selector("#mode .custom-objective")
+                initial["customGap"] = await panel.evaluate(
+                    """() => {
+                        const select = document.querySelector('#mode select');
+                        const custom = document.querySelector('#mode .custom-objective');
+                        return custom.getBoundingClientRect().top
+                            - select.getBoundingClientRect().bottom;
+                    }"""
+                )
                 return initial
             finally:
                 await context.close()
@@ -2133,6 +2150,9 @@ class TestWorkspaceFlow:
         assert seen["panelRole"] == "region"
         assert seen["aiVisible"] is False
         assert seen["aiLocked"] is True
+        assert seen["coreGuide"] == "https://whoishacked.com/stealth_prompt/connections/"
+        assert seen["autoOption"] == "Auto — let AI choose"
+        assert seen["customGap"] > 0
 
     def test_starting_a_run_moves_to_the_live_workspace(
         self, target: Any, tmp_path: Path

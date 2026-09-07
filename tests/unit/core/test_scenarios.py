@@ -21,3 +21,6 @@ def test_catalog_is_safe_public_metadata_without_generation_guidance() -> None:
 
     assert {entry["id"] for entry in catalog} == {objective.value for objective in Objective}
     assert all("guidance" not in entry for entry in catalog)
+    auto = next(entry for entry in catalog if entry["id"] == "auto")
+    assert auto["title"] == "Auto — let AI choose"
+    assert auto["category"] == "Adaptive"

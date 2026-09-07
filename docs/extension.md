@@ -193,7 +193,10 @@ Errors appear directly below the section that produced them and can be dismissed
    External providers show a persistent data-processing warning before the run controls.
 3. **Choose a behavior and objective.** Behavior determines whether the extension only
    generates, asks before every send, prepares follow-ups, or runs a bounded adaptive
-   loop. Objectives include *instruction disclosure* and *sensitive data disclosure*.
+   loop. Choose a named objective such as *instruction disclosure* or *sensitive data
+   disclosure*, or choose **Auto — let AI choose** to map visible capabilities and
+   select an evidence-backed objective. The Auto objective does not authorize Auto
+   sending; behavior and objective remain separate controls.
 4. **Choose the response trigger.**
    - **Capture from page** watches the selected response container.
    - **Paste response** is the fallback for canvas, virtualized, cross-frame, or

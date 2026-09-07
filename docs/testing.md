@@ -10,6 +10,17 @@ site or select a scope on your behalf.
 3. Choose how replies are captured.
 4. Set data sharing and automatic-run limits.
 
+The two Auto controls are independent:
+
+- **Auto behavior** authorizes the bounded send/capture/analyze loop described below.
+- **Auto — let AI choose** is an objective option. It first maps visible capabilities,
+  selects one concrete security objective supported by evidence, and keeps that focus
+  until the evidence warrants a pivot. It does not grant permission to send anything.
+
+Choose a named objective when you already know the boundary you need to test. Choose
+the Auto objective when the target's capabilities or most relevant weakness are not
+clear yet.
+
 ### Behaviors
 
 | Mode | What happens |

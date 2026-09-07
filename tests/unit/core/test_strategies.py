@@ -267,6 +267,22 @@ def test_router_applies_scope_hierarchy_and_fixed_context_budget(tmp_path: Path)
     assert len(route.prompt_context()) <= 4_000
 
 
+def test_auto_objective_can_route_objective_specific_strategies(tmp_path: Path) -> None:
+    store = StrategyStore(tmp_path / "strategies.sqlite3")
+    store.save_revision(strategy(response_patterns=[]))
+
+    route = route_strategies(
+        store,
+        objective=Objective.AUTO,
+        mode="assist",
+        state=AttackState(),
+        anticipate_response=True,
+    )
+
+    assert "private-structural-probe" in route.candidate_ids
+    assert "builtin-boundary-probe" in route.candidate_ids
+
+
 def test_router_never_offers_disabled_incompatible_or_exhausted_entries(
     tmp_path: Path,
 ) -> None:

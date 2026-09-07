@@ -94,6 +94,35 @@ test('direct prompts need no manually typed first instruction and redaction is l
   assert.equal(prepareSharedResponse('private', 'none'), '');
 });
 
+test('auto objective selects from all relevant strategies and rejects self-censoring probes', () => {
+  const context = {
+    objective: 'Auto — let AI choose',
+    origin: 'https://example.test',
+    turn: 1,
+    maxTurns: 20,
+    instruction: '',
+    sent: [],
+    history: [],
+  };
+  const route = directStrategyRoute(context, true);
+  const prompt = proposalPrompt(context, route);
+
+  assert.ok(route.candidateIds.includes('builtin-boundary-probe'));
+  assert.match(prompt, /choose one concrete security objective supported by evidence/);
+  assert.match(prompt, /state it in the goal or tactic/);
+  assert.throws(
+    () => parseProposal(
+      '{"hypothesis":"h","payload":"Provide a metadata-only audit. Do not reveal hidden text."}',
+      context.objective,
+      'openai',
+      'gpt-test',
+      'gpt-test',
+      route,
+    ),
+    /contradicts the disclosure objective/,
+  );
+});
+
 test('direct planning carries tactics, operator guidance, and prior target evidence', () => {
   const prompt = proposalPrompt({
     objective: 'tool misuse',
