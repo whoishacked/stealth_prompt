@@ -11,8 +11,8 @@
     "clean": "rm -rf dist dist-test"
   },
   "devDependencies": {
-    "@types/chrome": "0.2.7",
-    "@types/node": "22.10.2",
+    "@types/chrome": "0.2.9",
+    "@types/node": "26.4.1",
     "esbuild": "0.28.2",
     "typescript": "7.0.2"
   },
