@@ -23,6 +23,7 @@ import { emptyBinding } from '../protocol/messages.js';
 import {
   DEFAULT_PROTECTED_VALUE_LABEL,
   DEFAULT_SAFE_DESTINATION,
+  FRAMEFUZZ_COMPATIBLE_OBJECTIVES,
   FRAMEFUZZ_STRATEGIES,
 } from '../framefuzz.js';
 import type { FrameFuzzSettings, FrameFuzzStrategy } from '../framefuzz.js';
@@ -442,7 +443,16 @@ export function reduce(state: PanelState, action: Action): PanelState {
     }
 
     case 'settings': {
-      const settings = { ...state.settings, ...action.patch };
+      let settings = { ...state.settings, ...action.patch };
+      // FrameFuzz is meaningful only for its closed objective set. Keep that
+      // invariant here so every settings caller gets the same atomic result.
+      if (
+        action.patch.objective !== undefined
+        && !FRAMEFUZZ_COMPATIBLE_OBJECTIVES.has(settings.objective)
+        && settings.frameFuzz.enabled
+      ) {
+        settings = { ...settings, frameFuzz: { ...settings.frameFuzz, enabled: false } };
+      }
       // A model belongs to the provider it came from; carrying it across would
       // misdescribe the run.
       const providerChanged =

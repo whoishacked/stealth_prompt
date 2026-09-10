@@ -963,6 +963,22 @@ class TestFrameValidation:
 
 
 class TestServerBinding:
+    def test_response_capture_defaults_to_fifteen_seconds(self) -> None:
+        binding = InteractionBinding.from_dict(
+            {
+                "origin": "http://127.0.0.1:8765",
+                "input": {"strategy": "css", "value": "#message"},
+                "submit": {
+                    "locator": {"strategy": "css", "value": "#send"}
+                },
+                "response": {
+                    "locator": {"strategy": "css", "value": ".assistant"}
+                },
+            }
+        )
+
+        assert binding.timeout_ms == 15_000
+
     def test_refuses_a_non_loopback_bind(self) -> None:
         with pytest.raises(ValueError, match="loopback only"):
             CoreServer(host="0.0.0.0")
@@ -1167,6 +1183,48 @@ class TestServerDispatch:
             "evaluation",
         ]
         assert frames[-1]["payload"]["next_proposal"]["payload"]
+
+    def test_auto_accepts_manual_evidence_only_after_capture_timeout(self) -> None:
+        server, frames = self.collect()
+        send = self._send(frames)
+        run(
+            server.dispatch(
+                "session.configure",
+                {
+                    "provider": "fake",
+                    "mode": "auto",
+                    "sharing": "redacted",
+                    "max_turns": 2,
+                    "max_duration_seconds": 60,
+                },
+                send,
+            )
+        )
+        run(server.dispatch("session.bind", {"binding": a_binding().to_dict()}, send))
+        run(server.dispatch("auto.start", {}, send))
+        run(server.dispatch("payload.sent", {}, send))
+
+        with pytest.raises(CoreError, match="incompatible with auto mode"):
+            run(server.dispatch("response.manual", {"text": "operator reply"}, send))
+
+        frames.clear()
+        run(
+            server.dispatch(
+                "response.manual",
+                {"text": "operator reply", "capture_fallback": True},
+                send,
+            )
+        )
+
+        assert [frame["type"] for frame in frames[:2]] == [
+            "evaluation.pending",
+            "evaluation",
+        ]
+        session = server.state.session
+        assert session is not None
+        captured = session.timeline.of_kind(EventKind.RESPONSE_CAPTURED)[-1]
+        assert captured.source is EventSource.OPERATOR
+        assert captured.metadata["manual"] is True
 
     def test_guided_follow_up_uses_one_combined_provider_turn(self) -> None:
         server, frames = self.collect()

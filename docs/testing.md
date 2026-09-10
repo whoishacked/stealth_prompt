@@ -58,6 +58,16 @@ Choose **Paste response** for canvas output, virtualized conversations, inaccess
 frames, or a response container that cannot be identified reliably. Only input and send
 control are required; paste the latest assistant reply before generating the next turn.
 
+Page capture shows a 15-second countdown. If it expires, **Check page again** watches the
+same post-send snapshot for another 15 seconds without resending the payload. You can
+instead paste the reply into the recovery field or choose **Re-detect response**, which
+runs read-only detection and opens Interaction for review. Pasted text preserves the
+session and is recorded as operator-provided evidence.
+If a completed Assist or Guided turn captured the wrong text, choose **Paste bot
+response** beside **Generate payload** and supply the latest reply without restarting.
+The extension rejects page-level response containers that also contain the selected
+input or Send control.
+
 ## Verify before sending
 
 **Fill harmless test draft** writes a benign draft to the selected input and never
@@ -86,6 +96,8 @@ Every case stops at a fresh-context gate. Open a new target conversation, confir
 reset, and let Stealth Prompt revalidate the origin and interaction binding. Auto
 authorization applies to one case only and is revoked at the next boundary. See the
 [FrameFuzz method, conclusions, and safe demo](framefuzz.md).
+Choosing an objective outside those three automatically turns FrameFuzz off, so a stale
+experiment setting cannot block an unrelated assessment.
 
 ## Continue a useful line of investigation
 

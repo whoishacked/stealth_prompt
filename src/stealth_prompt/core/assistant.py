@@ -247,7 +247,7 @@ class InteractionBinding:
     submit_strategy: str = "click_button"
     submit_key: str = "Enter"
     stable_ms: int = 1500
-    timeout_ms: int = 60000
+    timeout_ms: int = 15000
 
     @property
     def complete(self) -> bool:
@@ -326,7 +326,7 @@ class InteractionBinding:
             submit_strategy=strategy,
             submit_key=str(submit.get("key", "Enter"))[:32],
             stable_ms=int(response.get("stable_ms") or 1500),
-            timeout_ms=int(response.get("timeout_ms") or 60000),
+            timeout_ms=int(response.get("timeout_ms") or 15000),
         )
 
 

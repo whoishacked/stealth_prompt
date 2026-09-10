@@ -4,6 +4,29 @@ All notable changes are documented here. The project follows Semantic Versioning
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-10
+
+### Added
+
+- Added a visible 15-second response-capture countdown with recovery actions to
+  check the existing post-send snapshot again, re-detect the response element, or
+  paste one operator-provided response without restarting the assessment.
+- Added a correction path for completed Assist and Guided turns when automatic
+  capture returned incomplete or incorrect page text.
+
+### Changed
+
+- Improved capture for chat widgets that append new response envelopes beside a
+  deeply selected reply element.
+- Changing to an objective that does not support FrameFuzz now disables the stale
+  FrameFuzz setting automatically.
+
+### Fixed
+
+- Rejected response bindings that also contain the selected input or Send control,
+  preventing user-message echoes from being mistaken for assistant replies.
+- Kept the FrameFuzz toggle at its intended compact height.
+
 ## [0.4.0] - 2026-09-07
 
 ### Added

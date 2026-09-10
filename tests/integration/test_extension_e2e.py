@@ -603,6 +603,99 @@ class TestPanelUserInterface:
         assert seen["auto"]["manualBox"] is False
         assert "Behavior" in seen["auto"]["headings"]
 
+    def test_framefuzz_switch_keeps_compact_geometry(self, tmp_path: Path) -> None:
+        async def scenario() -> dict[str, str]:
+            playwright, context, extension_id = await launch(tmp_path, 0)
+            try:
+                panel = await context.new_page()
+                await panel.goto(f"chrome-extension://{extension_id}/sidepanel.html")
+                await panel.wait_for_selector("#root section", timeout=15000)
+                await panel.evaluate(
+                    """() => chrome.storage.local.set({ 'sp.local': {
+                        version: 5,
+                        settings: {
+                            connectionMethod: 'direct', corePort: 17371,
+                            provider: 'openai', requestedModel: '', mode: 'assist',
+                            responseSource: 'page', maxTurns: 20,
+                            maxDurationSeconds: 0, sharing: 'redacted',
+                            objective: 'instruction_disclosure', customObjective: '',
+                            advancedInstruction: '',
+                        },
+                    }})"""
+                )
+                await panel.reload()
+                await panel.wait_for_selector("#readiness")
+                await open_step(panel, "Behavior")
+                await panel.locator(".framefuzz-config").evaluate("node => node.open = true")
+                return await panel.locator(
+                    ".framefuzz-config .setting-toggle input"
+                ).first.evaluate(
+                    """node => {
+                        const style = getComputedStyle(node);
+                        return { width: style.width, height: style.height,
+                                 minHeight: style.minHeight };
+                    }"""
+                )
+            finally:
+                await context.close()
+                await playwright.stop()
+
+        seen = asyncio.run(scenario())
+        assert seen == {"width": "34px", "height": "19px", "minHeight": "19px"}
+
+    def test_incompatible_objective_turns_framefuzz_off(self, tmp_path: Path) -> None:
+        async def scenario() -> dict[str, Any]:
+            playwright, context, extension_id = await launch(tmp_path, 0)
+            try:
+                panel = await context.new_page()
+                await panel.goto(f"chrome-extension://{extension_id}/sidepanel.html")
+                await panel.wait_for_selector("#root section", timeout=15000)
+                await panel.evaluate(
+                    """() => chrome.storage.local.set({ 'sp.local': {
+                        version: 5,
+                        settings: {
+                            connectionMethod: 'direct', corePort: 17371,
+                            provider: 'openai', requestedModel: '', mode: 'assist',
+                            responseSource: 'page', potentialFindingAction: 'review',
+                            maxTurns: 20, maxDurationSeconds: 0, sharing: 'redacted',
+                            objective: 'instruction_disclosure', customObjective: '',
+                            advancedInstruction: '', learningEnabled: false,
+                            usePrivateStrategies: true,
+                            frameFuzz: {
+                                enabled: true,
+                                framedStrategies: ['integrity_signature'],
+                                protectedValueLabel: 'synthetic canary',
+                                safeDestination: 'https://audit.example.invalid/collect',
+                                randomizeOrder: true,
+                                randomSeed: 'browser-test-seed',
+                            },
+                        },
+                    }})"""
+                )
+                await panel.reload()
+                await panel.wait_for_selector("#readiness")
+                await open_step(panel, "Behavior")
+                await panel.select_option("#mode select", "custom")
+                return await panel.evaluate(
+                    """async () => {
+                        const stored = (await chrome.storage.local.get('sp.local'))['sp.local'];
+                        return {
+                            objective: stored.settings.objective,
+                            enabled: stored.settings.frameFuzz.enabled,
+                            label: document.querySelector(
+                                '.framefuzz-config summary span:last-child'
+                            )
+                                ?.textContent ?? '',
+                        };
+                    }"""
+                )
+            finally:
+                await context.close()
+                await playwright.stop()
+
+        seen = asyncio.run(scenario())
+        assert seen == {"objective": "custom", "enabled": False, "label": "unavailable"}
+
     def test_target_errors_render_beside_the_target_controls(
         self, tmp_path: Path
     ) -> None:
@@ -890,6 +983,84 @@ class TestPanelUserInterface:
         assert "Acme support is ready" in seen["text"]
         assert "OLD_USER" not in seen["text"]
         assert "NEW_USER" not in seen["text"]
+
+    def test_capture_follows_a_deep_response_to_new_message_siblings(
+        self, target: Any, tmp_path: Path
+    ) -> None:
+        """IBM-style widgets append response envelopes above the picked leaf."""
+
+        async def scenario() -> dict[str, Any]:
+            playwright, context, extension_id = await launch(tmp_path, 0, granted=True)
+            try:
+                port = target.server_address[1]
+                page = await context.new_page()
+                await page.goto(f"http://127.0.0.1:{port}/")
+                await page.evaluate(
+                    """() => {
+                        document.body.innerHTML = `
+                          <div id="messages">
+                            <div class="message request"><div>OLD_USER</div></div>
+                            <div class="message response"><div class="padding">
+                              <div class="bot">OLDER_REPLY</div>
+                            </div></div>
+                            <div class="message response custom"><div class="padding">
+                              <div class="bot" data-stealth-prompt-response="reviewed">
+                                OLD_REPLY
+                              </div>
+                            </div></div>
+                          </div>`;
+                    }"""
+                )
+
+                panel = await context.new_page()
+                await panel.goto(f"chrome-extension://{extension_id}/sidepanel.html")
+                await panel.wait_for_selector("#root section", timeout=15000)
+                await page.bring_to_front()
+                await panel.evaluate(
+                    """() => chrome.runtime.sendMessage(
+                        { channel: 'sp-panel', kind: 'bind-tab' })"""
+                )
+                binding = {
+                    "response": {
+                        "strategy": "css",
+                        "value": "[data-stealth-prompt-response='reviewed']",
+                    }
+                }
+
+                async def operation(name: str, **values: Any) -> dict[str, Any]:
+                    return await panel.evaluate(
+                        """({ name, binding, values }) => chrome.runtime.sendMessage({
+                            channel: 'sp-panel', kind: 'operation', operation: name,
+                            binding, ...values,
+                        })""",
+                        {"name": name, "binding": binding, "values": values},
+                    )
+
+                await operation("snapshot")
+                await page.evaluate(
+                    """() => setTimeout(() => {
+                        document.getElementById('messages').insertAdjacentHTML(
+                          'beforeend', `
+                            <div class="message request"><div>NEW_USER</div></div>
+                            <div class="message response"><div class="padding">
+                              <div class="bot">NEW_BOT_REPLY</div>
+                            </div></div>
+                            <div class="message response custom"><div class="padding">
+                              <div class="bot"><button>BOT_FOLLOW_UP</button></div>
+                            </div></div>`);
+                    }, 100)"""
+                )
+                return await operation("capture", stableMs=250, timeoutMs=5000)
+            finally:
+                await context.close()
+                await playwright.stop()
+
+        seen = asyncio.run(scenario())
+        assert seen["ok"] is True
+        assert "NEW_BOT_REPLY" in seen["text"]
+        assert "BOT_FOLLOW_UP" in seen["text"]
+        assert "NEW_USER" not in seen["text"]
+        assert "OLD_REPLY" not in seen["text"]
 
     def test_an_operator_can_connect_and_pair_by_hand(self, tmp_path: Path) -> None:
         async def scenario() -> dict[str, Any]:
@@ -1751,6 +1922,51 @@ class TestBindingHealth:
             """() => document.querySelector('.health .badge')?.textContent ?? 'absent'"""
         )
 
+    def test_a_response_container_cannot_include_the_chat_controls(
+        self, target: Any, tmp_path: Path
+    ) -> None:
+        """Gemini-like page roots are not accepted as bot-response bindings."""
+
+        async def scenario() -> dict[str, Any]:
+            playwright, context, extension_id = await launch(
+                tmp_path, 0, granted=True
+            )
+            try:
+                port = target.server_address[1]
+                page = await context.new_page()
+                await page.goto(f"http://127.0.0.1:{port}/")
+                await page.wait_for_selector("#message")
+                panel = await context.new_page()
+                await panel.goto(
+                    f"chrome-extension://{extension_id}/sidepanel.html"
+                )
+                await panel.wait_for_selector("#root section", timeout=15000)
+                await page.bring_to_front()
+                await panel.evaluate(
+                    """() => chrome.runtime.sendMessage(
+                        { channel: 'sp-panel', kind: 'bind-tab' })"""
+                )
+                return await panel.evaluate(
+                    """() => chrome.runtime.sendMessage({
+                        channel: 'sp-panel', kind: 'operation', operation: 'validate',
+                        binding: {
+                            input: { strategy: 'css', value: '#message' },
+                            submit: { strategy: 'css', value: "button[type='submit']" },
+                            response: { strategy: 'css', value: 'body' },
+                        },
+                    })"""
+                )
+            finally:
+                await context.close()
+                await playwright.stop()
+
+        seen = asyncio.run(scenario())
+        assert seen["ok"] is False
+        assert seen["roles"]["response"]["ok"] is False
+        assert "contains the chat input or send control" in seen["roles"][
+            "response"
+        ]["reason"]
+
     def test_a_reload_revalidates_and_stays_healthy(
         self, target: Any, tmp_path: Path
     ) -> None:
@@ -2085,6 +2301,232 @@ class TestWorkspaceFlow:
             "() => document.getElementById('conn').textContent === 'connected'",
             timeout=15000,
         )
+
+    def test_auto_capture_timeout_offers_manual_recovery(
+        self, target: Any, tmp_path: Path
+    ) -> None:
+        async def scenario() -> dict[str, Any]:
+            core = CoreServer(port=0, artifacts_root=tmp_path / "results")
+            await core.start()
+            code = core.pairing.start_pairing()
+            playwright, context, extension_id = await launch(
+                tmp_path, core.bound_port, granted=True
+            )
+            try:
+                port = target.server_address[1]
+                page = await context.new_page()
+                await page.goto(f"http://127.0.0.1:{port}/?mode=safe")
+                await page.evaluate(
+                    """() => document.body.insertAdjacentHTML(
+                        'afterbegin', '<div id="static-response">STATIC</div>')"""
+                )
+                panel = await self._open(context, extension_id)
+                await self._seed(
+                    panel,
+                    port,
+                    mode="auto",
+                    maxTurns=2,
+                    maxDurationSeconds=0,
+                    potentialFindingAction="continue",
+                )
+                await panel.evaluate(
+                    """async () => {
+                        const all = await chrome.storage.local.get('sp.local');
+                        const local = all['sp.local'];
+                        local.binding.response = { strategy: 'css', value: '#static-response' };
+                        local.binding.stableMs = 250;
+                        local.binding.timeoutMs = 2500;
+                        await chrome.storage.local.set({ 'sp.local': local });
+                    }"""
+                )
+                await panel.reload()
+                await panel.wait_for_selector("#workspace", timeout=15000)
+                await self._connect(panel, core, code)
+                await page.bring_to_front()
+                await panel.evaluate(
+                    """() => chrome.runtime.sendMessage(
+                        { channel: 'sp-panel', kind: 'bind-tab' })"""
+                )
+                await panel.click("#readiness button.primary")
+                await panel.wait_for_function(
+                    """() => document.querySelector('.generation-status.active')
+                        ?.textContent?.includes('Waiting for response')""",
+                    timeout=20000,
+                )
+                countdown = await panel.locator(
+                    ".generation-status.active"
+                ).text_content()
+                await panel.wait_for_selector("#manual-response", timeout=20000)
+                before = {
+                    "workspace": await self._workspace(panel),
+                    "heading": await panel.get_by_text(
+                        "Add the bot response", exact=True
+                    ).count(),
+                    "error": await panel.locator("[role=alert]").text_content(),
+                    "retry": await panel.get_by_text(
+                        "Check page again · 15s", exact=True
+                    ).count(),
+                    "redetect": await panel.get_by_text(
+                        "Re-detect response", exact=True
+                    ).count(),
+                    "countdown": countdown,
+                }
+                await panel.fill("#manual-response", "MANUAL_BOT_REPLY")
+                await panel.get_by_text("Use response & continue", exact=True).click()
+                await panel.wait_for_function(
+                    """() => document.querySelector('.session-meta')
+                        ?.textContent?.includes('turn 2/2')""",
+                    timeout=20000,
+                )
+                session = core.state.session
+                return {
+                    "before": before,
+                    "first_response": session.turns[0].response if session else "",
+                }
+            finally:
+                await context.close()
+                await playwright.stop()
+                await core.stop()
+
+        seen = asyncio.run(scenario())
+        assert seen["before"]["workspace"] == "test"
+        assert seen["before"]["heading"] == 1
+        assert "No response was detected within 15 seconds" in seen["before"]["error"]
+        assert seen["before"]["retry"] == 1
+        assert seen["before"]["redetect"] == 1
+        assert "remaining" in seen["before"]["countdown"]
+        assert seen["first_response"] == "MANUAL_BOT_REPLY"
+
+    def test_a_late_page_response_can_be_checked_without_resending(
+        self, target: Any, tmp_path: Path
+    ) -> None:
+        async def scenario() -> dict[str, Any]:
+            core = CoreServer(port=0, artifacts_root=tmp_path / "results")
+            await core.start()
+            code = core.pairing.start_pairing()
+            playwright, context, extension_id = await launch(
+                tmp_path, core.bound_port, granted=True
+            )
+            try:
+                port = target.server_address[1]
+                page = await context.new_page()
+                await page.goto(f"http://127.0.0.1:{port}/?mode=safe")
+                await page.evaluate(
+                    """() => document.body.insertAdjacentHTML(
+                        'afterbegin', '<div id="static-response">STATIC</div>')"""
+                )
+                panel = await self._open(context, extension_id)
+                await self._seed(panel, port, mode="assist", maxDurationSeconds=0)
+                await panel.evaluate(
+                    """async () => {
+                        const all = await chrome.storage.local.get('sp.local');
+                        const local = all['sp.local'];
+                        local.binding.response = {
+                            strategy: 'css', value: '#static-response'
+                        };
+                        local.binding.stableMs = 250;
+                        local.binding.timeoutMs = 1000;
+                        await chrome.storage.local.set({ 'sp.local': local });
+                    }"""
+                )
+                await panel.reload()
+                await panel.wait_for_selector("#workspace", timeout=15000)
+                await self._connect(panel, core, code)
+                await page.bring_to_front()
+                await panel.evaluate(
+                    """() => chrome.runtime.sendMessage(
+                        { channel: 'sp-panel', kind: 'bind-tab' })"""
+                )
+                await panel.click("#readiness button.primary")
+                await panel.wait_for_selector("#approve-send", timeout=20000)
+                await panel.click("#approve-send")
+                retry = panel.get_by_text("Check page again · 15s", exact=True)
+                await retry.wait_for(timeout=20000)
+                sent_before = await page.locator(".user").count()
+                await page.evaluate(
+                    """() => {
+                        document.getElementById('static-response').textContent =
+                            'LATE_BOT_REPLY';
+                    }"""
+                )
+                await retry.click()
+                for _ in range(100):
+                    session = core.state.session
+                    if session and session.turns[0].response == "LATE_BOT_REPLY":
+                        break
+                    await asyncio.sleep(0.1)
+                session = core.state.session
+                return {
+                    "sent_before": sent_before,
+                    "sent_after": await page.locator(".user").count(),
+                    "response": session.turns[0].response if session else "",
+                }
+            finally:
+                await context.close()
+                await playwright.stop()
+                await core.stop()
+
+        seen = asyncio.run(scenario())
+        assert seen["sent_before"] == seen["sent_after"] == 1
+        assert seen["response"] == "LATE_BOT_REPLY"
+
+    def test_assist_can_supply_missing_page_context_manually(
+        self, target: Any, tmp_path: Path
+    ) -> None:
+        """An ended Assist turn offers manual context without restarting."""
+
+        async def scenario() -> dict[str, Any]:
+            core = CoreServer(port=0, artifacts_root=tmp_path / "results")
+            await core.start()
+            code = core.pairing.start_pairing()
+            playwright, context, extension_id = await launch(
+                tmp_path, core.bound_port, granted=True
+            )
+            try:
+                port = target.server_address[1]
+                page = await context.new_page()
+                await page.goto(f"http://127.0.0.1:{port}/?mode=safe")
+                await page.wait_for_selector("#message")
+                panel = await self._open(context, extension_id)
+                await self._seed(
+                    panel,
+                    port,
+                    mode="assist",
+                    maxDurationSeconds=0,
+                )
+                await self._connect(panel, core, code)
+                await page.bring_to_front()
+                await panel.evaluate(
+                    """() => chrome.runtime.sendMessage(
+                        { channel: 'sp-panel', kind: 'bind-tab' })"""
+                )
+                await panel.click("#readiness button.primary")
+                await panel.wait_for_selector("#approve-send", timeout=20000)
+                await panel.click("#approve-send")
+                await panel.get_by_text("Paste bot response", exact=True).wait_for(
+                    timeout=20000
+                )
+                await panel.get_by_text("Paste bot response", exact=True).click()
+                await panel.fill("#manual-response", "CORRECTED_GEMINI_REPLY")
+                await panel.get_by_text(
+                    "Use response & continue", exact=True
+                ).click()
+                await panel.wait_for_selector("#payload", timeout=20000)
+                session = core.state.session
+                return {
+                    "proposal": await panel.input_value("#payload"),
+                    "responses": [turn.response for turn in session.turns]
+                    if session
+                    else [],
+                }
+            finally:
+                await context.close()
+                await playwright.stop()
+                await core.stop()
+
+        seen = asyncio.run(scenario())
+        assert seen["proposal"].strip()
+        assert "CORRECTED_GEMINI_REPLY" in seen["responses"]
 
     def test_first_launch_opens_setup(self, tmp_path: Path) -> None:
         """Scenario 1: nothing configured means there is only one place to be."""

@@ -13,6 +13,7 @@
 
 import {
   BINDING_ROLES,
+  DEFAULT_CAPTURE_TIMEOUT_MS,
   bindingComplete,
   bindingSendComplete,
   bindingToCore,
@@ -115,6 +116,9 @@ let state: PanelState = initialState();
 let socket: WebSocket | null = null;
 let stageTimer: number | null = null;
 let manualResponse = '';
+/** Operator-opened recovery when a page capture produced no useful continuation. */
+let manualCorrectionOpen = false;
+let responseWaitDeadline = 0;
 /** The pairing code as typed, kept outside the DOM so a re-render cannot lose it. */
 let pairingCode = '';
 /** Direct credentials are intentionally session-only: never persisted or exported. */
@@ -1446,13 +1450,29 @@ function renderSettingsPage(root: HTMLElement): void {
 }
 
 function renderManualTrigger(root: HTMLElement): void {
-  if (state.settings.responseSource !== 'manual' || state.settings.mode === 'auto') return;
-  const node = section('Manual response trigger');
+  const captureFallback = state.stage === 'timed_out' && state.settings.responseSource === 'page';
+  const manualCorrection =
+    manualCorrectionOpen
+    && state.settings.responseSource === 'page'
+    && state.settings.mode !== 'auto';
+  if (
+    !captureFallback
+    && !manualCorrection
+    && (state.settings.responseSource !== 'manual' || state.settings.mode === 'auto')
+  ) {
+    return;
+  }
+  const recovery = captureFallback || manualCorrection;
+  const node = section(recovery ? 'Add the bot response' : 'Manual response trigger');
   node.appendChild(
     el(
       'div',
-      'note',
-      'Paste the latest bot reply when automatic capture is unreliable. It is handled according to the selected data-sharing policy.',
+      recovery ? 'note warn' : 'note',
+      captureFallback
+        ? 'Automatic capture timed out. Paste the latest bot reply to continue this run; it will be recorded as operator-provided evidence.'
+        : manualCorrection
+          ? 'Paste the latest bot reply if the page capture was missing or incorrect. It will be recorded as operator-provided evidence and used to prepare the next payload.'
+        : 'Paste the latest bot reply when automatic capture is unreliable. It is handled according to the selected data-sharing policy.',
     ),
   );
   const input = document.createElement('textarea');
@@ -1463,11 +1483,16 @@ function renderManualTrigger(root: HTMLElement): void {
   input.oninput = () => {
     manualResponse = input.value;
     counter.textContent = `${manualResponse.length.toLocaleString()} / 262,144`;
+    submit.disabled = !manualResponse.trim() || ['generating', 'evaluating'].includes(state.stage);
   };
   node.appendChild(input);
   const counter = el('div', 'note counter', `${manualResponse.length.toLocaleString()} / 262,144`);
   node.appendChild(counter);
-  const submit = el('button', 'primary', 'Analyze & generate next payload') as HTMLButtonElement;
+  const submit = el(
+    'button',
+    'primary',
+    recovery ? 'Use response & continue' : 'Analyze & generate next payload',
+  ) as HTMLButtonElement;
   submit.disabled = !manualResponse.trim() || ['generating', 'evaluating'].includes(state.stage);
   submit.onclick = () => submitManualResponse();
   node.appendChild(submit);
@@ -1483,6 +1508,7 @@ function renderProposal(root: HTMLElement): void {
   const inFlight = state.stage === 'sending' || state.stage === 'waiting_for_response';
   const pausedForReview = state.autoStopReason === 'potential_review';
   const autoRecoveryRequired = state.settings.mode === 'auto' && Boolean(state.autoStopReason);
+  const captureRecoveryRequired = state.stage === 'timed_out';
   node.classList.add(
     'proposal-card',
     working
@@ -1516,12 +1542,16 @@ function renderProposal(root: HTMLElement): void {
   }
 
   if (inFlight) {
+    const remaining = Math.max(
+      0,
+      Math.ceil((responseWaitDeadline - Date.now()) / 1000),
+    );
     const message =
       state.stage === 'sending'
         ? 'Sending the authorized payload…'
         : state.settings.responseSource === 'manual'
           ? 'Payload sent. Paste the bot reply above to continue.'
-          : 'Waiting for the bound response container…';
+          : `Waiting for response… ${remaining}s remaining`;
     const status = el('div', 'generation-status active', message);
     status.setAttribute('role', 'status');
     status.setAttribute('aria-live', 'polite');
@@ -1634,6 +1664,30 @@ function renderProposal(root: HTMLElement): void {
       ) as HTMLButtonElement;
       review.onclick = () => openOrRecoverReview();
       node.appendChild(review);
+    } else if (captureRecoveryRequired) {
+      const warning = el(
+        'div',
+        'note warn',
+        `No response was detected within ${DEFAULT_CAPTURE_TIMEOUT_MS / 1000} seconds.`,
+      );
+      warning.setAttribute('role', 'alert');
+      node.appendChild(warning);
+      const recovery = el('div', 'row');
+      const retry = el(
+        'button',
+        'primary',
+        `Check page again · ${DEFAULT_CAPTURE_TIMEOUT_MS / 1000}s`,
+      ) as HTMLButtonElement;
+      retry.onclick = () => void retryPageCapture();
+      const binding = el('button', '', 'Re-detect response') as HTMLButtonElement;
+      binding.onclick = () => {
+        navigate('setup');
+        uiDispatch({ type: 'open_step', step: 'interaction' });
+        void discoverElements();
+      };
+      recovery.appendChild(retry);
+      recovery.appendChild(binding);
+      node.appendChild(recovery);
     } else if (autoRecoveryRequired) {
       node.appendChild(
         el('div', 'note', 'Resolve the paused run below before generating another payload.'),
@@ -1642,9 +1696,24 @@ function renderProposal(root: HTMLElement): void {
       node.appendChild(
         el('div', 'note', 'No payload is prepared. Generate the next one when you are ready.'),
       );
+      const row = el('div', 'row');
       const next = el('button', 'primary', 'Generate payload') as HTMLButtonElement;
       next.onclick = () => requestProposal();
-      node.appendChild(next);
+      row.appendChild(next);
+      if (
+        state.turns > 0
+        && state.settings.responseSource === 'page'
+        && state.settings.mode !== 'auto'
+      ) {
+        const paste = el('button', '', 'Paste bot response') as HTMLButtonElement;
+        paste.onclick = () => {
+          manualCorrectionOpen = true;
+          render();
+          document.getElementById('manual-response')?.focus();
+        };
+        row.appendChild(paste);
+      }
+      node.appendChild(row);
     } else {
       node.appendChild(
         el('div', 'note warn', 'This run cannot continue until setup is complete.'),
@@ -4246,7 +4315,7 @@ async function completeDirectFrameFuzz(
   return true;
 }
 
-async function analyzeDirectResponse(response: string): Promise<void> {
+async function analyzeDirectResponse(response: string, forceNext = false): Promise<void> {
   const reportTurn = directTurnForResponse(response);
   void saveDirectReportSnapshot();
   dispatch({ type: 'stage', stage: 'evaluating', at: Date.now() });
@@ -4265,7 +4334,7 @@ async function analyzeDirectResponse(response: string): Promise<void> {
   try {
     const context = directContext(true);
     const combined = !directFrameFuzzCampaign
-      && (state.settings.mode === 'guided' || state.settings.mode === 'auto');
+      && (forceNext || state.settings.mode === 'guided' || state.settings.mode === 'auto');
     const route = combined ? directStrategyRoute(context, true) : undefined;
     if (route && !route.plannerStrategies.length) {
       throw new Error('No compatible active strategy remains for this run.');
@@ -4341,6 +4410,7 @@ async function analyzeDirectResponse(response: string): Promise<void> {
 }
 
 function requestProposal(): void {
+  manualCorrectionOpen = false;
   if (state.settings.connectionMethod === 'direct') {
     void requestDirectProposal(false);
     return;
@@ -4358,6 +4428,7 @@ async function startTest(): Promise<void> {
     fail(readiness.summary, 'global');
     return;
   }
+  manualCorrectionOpen = false;
   if (state.settings.connectionMethod === 'direct') {
     directStartedAt = Date.now();
     directReportCreatedAt = directStartedAt;
@@ -4544,7 +4615,7 @@ async function executePageInteraction(
   submitStrategy = 'click_button',
   submitKey = 'Enter',
   stableMs = 1500,
-  timeoutMs = 60000,
+  timeoutMs = DEFAULT_CAPTURE_TIMEOUT_MS,
 ): Promise<PageInteractionResult> {
   const binding = bindingLocators();
   await callWorker({ kind: 'operation', operation: 'snapshot', binding });
@@ -4605,23 +4676,62 @@ async function executePageInteraction(
     return { sent: true, response: null };
   }
 
+  const waitMs = Math.min(
+    DEFAULT_CAPTURE_TIMEOUT_MS,
+    Math.max(1000, Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_CAPTURE_TIMEOUT_MS),
+  );
+  responseWaitDeadline = Date.now() + waitMs;
+  startStageTicker();
   const captured = await callWorker({
     kind: 'operation',
     operation: 'capture',
     binding,
     stableMs,
-    timeoutMs,
+    timeoutMs: waitMs,
   });
+  stopStageTicker();
+  responseWaitDeadline = 0;
   if (!captured?.ok) {
     // A capture failure is never reported as an empty reply.
+    manualResponse = String(captured?.['text'] ?? '').trim();
     dispatch({ type: 'stage', stage: 'timed_out', at: Date.now() });
-    fail(
-      'The reply could not be captured. Use Capture current response, or re-select the response container.',
-      'interaction',
-    );
+    clearError('test');
     return { sent: true, response: null };
   }
   return { sent: true, response: String(captured['text'] ?? '') };
+}
+
+/** Re-check the original post-send snapshot without sending the payload again. */
+async function retryPageCapture(): Promise<void> {
+  if (!state.binding.response) {
+    navigate('setup');
+    uiDispatch({ type: 'open_step', step: 'interaction' });
+    return;
+  }
+  clearError('test');
+  dispatch({ type: 'stage', stage: 'waiting_for_response', at: Date.now() });
+  responseWaitDeadline = Date.now() + DEFAULT_CAPTURE_TIMEOUT_MS;
+  startStageTicker();
+  const captured = await callWorker({
+    kind: 'operation',
+    operation: 'capture',
+    binding: bindingLocators(),
+    stableMs: state.binding.stableMs,
+    timeoutMs: DEFAULT_CAPTURE_TIMEOUT_MS,
+  });
+  stopStageTicker();
+  responseWaitDeadline = 0;
+  const response = String(captured?.['text'] ?? '').trim();
+  if (!captured?.ok || !response) {
+    manualResponse = response;
+    dispatch({ type: 'stage', stage: 'timed_out', at: Date.now() });
+    return;
+  }
+  if (state.settings.connectionMethod === 'direct') {
+    void analyzeDirectResponse(response);
+  } else {
+    send('response.captured', { text: response });
+  }
 }
 
 /** Run the operations the Core authorized, in order, then report the reply. */
@@ -4631,7 +4741,7 @@ async function performSend(authorized: Record<string, any>): Promise<void> {
     String(authorized['submit_strategy'] ?? 'click_button'),
     String(authorized['submit_key'] ?? 'Enter'),
     Number(authorized['stable_ms'] ?? 1500),
-    Number(authorized['timeout_ms'] ?? 60000),
+    Number(authorized['timeout_ms'] ?? DEFAULT_CAPTURE_TIMEOUT_MS),
   );
   if (!result.sent) return;
   send('payload.sent', {});
@@ -4693,23 +4803,26 @@ async function performDirectSend(payload: string): Promise<void> {
 
 function submitManualResponse(): void {
   const text = manualResponse.trim();
+  const captureFallback = state.stage === 'timed_out' && state.settings.responseSource === 'page';
   if (!text) {
     fail('Paste a non-empty bot response first.', 'test');
     return;
   }
-  if (state.settings.mode === 'auto') {
+  if (state.settings.mode === 'auto' && !captureFallback) {
     fail('Manual response trigger is unavailable in Auto mode.', 'test');
     return;
   }
+  clearError('test');
+  manualCorrectionOpen = false;
   if (state.settings.connectionMethod === 'direct') {
     manualResponse = '';
-    void analyzeDirectResponse(text);
+    void analyzeDirectResponse(text, true);
     return;
   }
   const submit = (): void => {
     dispatch({ type: 'stage', stage: 'evaluating', at: Date.now() });
     startStageTicker();
-    send('response.manual', { text });
+    send('response.manual', { text, capture_fallback: captureFallback });
     manualResponse = '';
   };
   if (!state.sessionId) {

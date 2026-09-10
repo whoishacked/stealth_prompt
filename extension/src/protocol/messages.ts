@@ -17,6 +17,7 @@
  */
 
 export const PROTOCOL_VERSION = 1;
+export const DEFAULT_CAPTURE_TIMEOUT_MS = 15_000;
 
 /** Frames the extension may send to the Core. */
 export type CoreRequestType =
@@ -339,7 +340,7 @@ export function emptyBinding(origin = ''): InteractionBinding {
     submitStrategy: 'click_button',
     submitKey: 'Enter',
     stableMs: 1500,
-    timeoutMs: 60000,
+    timeoutMs: DEFAULT_CAPTURE_TIMEOUT_MS,
   };
 }
 
@@ -364,7 +365,7 @@ export function bindingToCore(binding: InteractionBinding): Record<string, unkno
     response: {
       locator: binding.response,
       stable_ms: binding.stableMs,
-      timeout_ms: binding.timeoutMs,
+      timeout_ms: Math.max(1000, Math.min(binding.timeoutMs, DEFAULT_CAPTURE_TIMEOUT_MS)),
     },
   };
 }

@@ -32,8 +32,18 @@ pick that role manually. The run pauses because sending through a guessed contro
 
 ## Capture times out
 
-Re-pick one example of the assistant's latest reply. For canvas, virtualized, or cross-frame
-output, switch the response trigger to **Paste response**.
+The Test workspace counts down 15 seconds while watching for a stable reply. After a
+timeout, **Check page again** watches the original post-send snapshot for another 15
+seconds without sending the payload again. **Use response & continue** is available as
+a manual fallback, including during Auto; **Re-detect response** performs a read-only
+DOM scan and opens the exact Setup step that can fix the selector. For canvas,
+virtualized, or cross-frame output, select **Paste response** before starting an Assist
+or Guided run.
+
+If the turn completes but the captured text is wrong, use **Paste bot response** beside
+**Generate payload**. If the response binding includes the input or Send control, select
+one assistant reply instead of the whole chat page; Stealth Prompt rejects that broad
+binding because input changes can otherwise be mistaken for bot output.
 
 ## Everything remains Potential
 

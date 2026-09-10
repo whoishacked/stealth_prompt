@@ -7,6 +7,7 @@ import { test } from 'node:test';
 
 import {
   BROWSER_OPERATIONS,
+  DEFAULT_CAPTURE_TIMEOUT_MS,
   MAX_FRAME_BYTES,
   PROTOCOL_VERSION,
   ProtocolError,
@@ -58,6 +59,17 @@ test('encodes a request with the protocol version', () => {
   const encoded = JSON.parse(encodeCoreFrame('ping', { a: 1 }));
   assert.equal(encoded.protocol_version, PROTOCOL_VERSION);
   assert.equal(encoded.type, 'ping');
+});
+
+test('page response capture defaults to a short recovery window', () => {
+  const binding = emptyBinding();
+  assert.equal(DEFAULT_CAPTURE_TIMEOUT_MS, 15_000);
+  assert.equal(binding.timeoutMs, DEFAULT_CAPTURE_TIMEOUT_MS);
+  binding.timeoutMs = 60_000;
+  assert.equal(
+    (bindingToCore(binding)['response'] as Record<string, unknown>)['timeout_ms'],
+    DEFAULT_CAPTURE_TIMEOUT_MS,
+  );
 });
 
 test('the operation allowlist is closed', () => {

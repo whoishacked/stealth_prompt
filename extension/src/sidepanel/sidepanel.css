@@ -291,6 +291,7 @@ button.danger:hover:not(:disabled) { background: var(--danger-soft); border-colo
 .setting-toggle input {
   width: 34px;
   height: 19px;
+  min-height: 19px;
   flex: none;
   appearance: none;
   padding: 2px;

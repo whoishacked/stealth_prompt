@@ -14,7 +14,7 @@
  */
 
 import type { BrowserOperation, Locator } from '../protocol/messages.js';
-import { isBrowserOperation } from '../protocol/messages.js';
+import { DEFAULT_CAPTURE_TIMEOUT_MS, isBrowserOperation } from '../protocol/messages.js';
 
 /** Keys a submit may use. Anything that could trigger a browser shortcut is out. */
 const ALLOWED_KEYS = new Set(['Enter', 'Shift+Enter', 'Tab', 'Escape']);
@@ -301,14 +301,50 @@ let snapshot: {
   text: string;
   roots: Element[];
   known: WeakSet<Element>;
-} = { count: 0, text: '', roots: [], known: new WeakSet() };
+  responseTokens: string[];
+} = { count: 0, text: '', roots: [], known: new WeakSet(), responseTokens: [] };
 let lastFilledText = '';
+
+/**
+ * Find class tokens that distinguish the reviewed response branch from its
+ * siblings. Chat widgets often append each reply beside the old one instead
+ * of changing the exact node the operator picked.
+ */
+function responseSiblingTokens(element: Element | undefined): string[] {
+  let current = element;
+  for (let depth = 0; current?.parentElement && depth < 4; depth += 1) {
+    const siblings = Array.from(current.parentElement.children).filter((item) => item !== current);
+    const shared = Array.from(current.classList).filter((token) =>
+      siblings.some((item) => item.classList.contains(token)),
+    );
+    if (shared.length) {
+      const distinguishing = shared.filter((token) =>
+        siblings.some((item) => !item.classList.contains(token)),
+      );
+      return distinguishing.length ? distinguishing : shared;
+    }
+    current = current.parentElement;
+  }
+  return [];
+}
 
 function takeSnapshot(locator: Locator | null | undefined): OperationResult {
   const all = resolveAll(locator);
-  const roots = Array.from(
-    new Set(all.flatMap((element) => [element, element.parentElement].filter(Boolean) as Element[])),
+  const rootSet = new Set(
+    all.flatMap((element) => [element, element.parentElement]
+      .filter((candidate): candidate is Element => Boolean(candidate))
+      .filter((candidate) => candidate !== document.body && candidate !== document.documentElement)),
   );
+  // The exact response node remains the primary scope. A short ancestor chain
+  // covers component libraries that append new message envelopes as siblings;
+  // body/html are deliberately excluded so capture never becomes a page scrape.
+  let ancestor = all.at(-1)?.parentElement?.parentElement ?? null;
+  for (let depth = 0; ancestor && depth < 3; depth += 1) {
+    if (ancestor === document.body || ancestor === document.documentElement) break;
+    rootSet.add(ancestor);
+    ancestor = ancestor.parentElement;
+  }
+  const roots = Array.from(rootSet);
   const known = new WeakSet<Element>();
   for (const root of roots) {
     known.add(root);
@@ -319,6 +355,7 @@ function takeSnapshot(locator: Locator | null | undefined): OperationResult {
     text: all.length ? ((all[all.length - 1] as HTMLElement).innerText ?? '').trim() : '',
     roots,
     known,
+    responseTokens: responseSiblingTokens(all.at(-1)),
   };
   return { ok: true, count: snapshot.count };
 }
@@ -339,9 +376,21 @@ function newResponseText(locator: Locator | null | undefined): string {
         !element.matches('button,input,textarea,form,script,style') &&
         visible(element),
     );
-    const reply = added.at(-1);
-    const text = (reply?.innerText ?? '').trim();
-    if (text && !(added.length === 1 && text === lastFilledText)) return text;
+    const matching = snapshot.responseTokens.length
+      ? added.filter((element) =>
+          snapshot.responseTokens.some((token) => element.classList.contains(token)),
+        )
+      : [];
+    // When a structural response signature is known, wait for it rather than
+    // mistaking a decorated user-message echo for the assistant's reply.
+    if (snapshot.responseTokens.length && !matching.length) continue;
+    const replies = matching.length ? matching : added.slice(-1);
+    const text = replies
+      .map((reply) => (reply.innerText ?? '').trim())
+      .filter((value) => value && value !== lastFilledText)
+      .join('\n')
+      .trim();
+    if (text) return text;
   }
 
   const current = all.length ? ((all[all.length - 1] as HTMLElement).innerText ?? '').trim() : '';
@@ -707,11 +756,14 @@ function discover(): OperationResult {
  */
 function validate(binding: Record<string, Locator | null>): OperationResult {
   const roles: Record<string, RoleValidation> = {};
+  const resolved: Record<string, Element[]> = {};
   let ok = true;
 
   for (const [role, locator] of Object.entries(binding)) {
     if (!locator) continue;
-    const matches = resolveAll(locator).length;
+    const elements = resolveAll(locator);
+    const matches = elements.length;
+    resolved[role] = elements;
     if (matches === 0) {
       roles[role] = { ok: false, matches, reason: `The ${role} element no longer matches.` };
       ok = false;
@@ -726,6 +778,22 @@ function validate(binding: Record<string, Locator | null>): OperationResult {
     } else {
       roles[role] = { ok: true, matches, reason: '' };
     }
+  }
+
+  const responseElements = resolved['response'] ?? [];
+  const nestedControls = (['input', 'submit'] as const).filter((role) =>
+    responseElements.some((response) =>
+      (resolved[role] ?? []).some((control) => response.contains(control)),
+    ),
+  );
+  if (responseElements.length && nestedControls.length) {
+    roles['response'] = {
+      ok: false,
+      matches: responseElements.length,
+      reason:
+        'The response container also contains the chat input or send control. Pick one bot reply instead.',
+    };
+    ok = false;
   }
 
   const failed = Object.entries(roles)
@@ -762,7 +830,11 @@ export async function performOperation(
     case 'submit':
       return submit(request, binding);
     case 'capture':
-      return capture(binding['response'], request.stableMs ?? 1500, request.timeoutMs ?? 60000);
+      return capture(
+        binding['response'],
+        request.stableMs ?? 1500,
+        request.timeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS,
+      );
     case 'conversation':
       return conversation(binding['response']);
     default:

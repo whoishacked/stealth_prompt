@@ -8,7 +8,7 @@
  */
 
 import type { Locator } from '../protocol/messages.js';
-import { isBrowserOperation } from '../protocol/messages.js';
+import { DEFAULT_CAPTURE_TIMEOUT_MS, isBrowserOperation } from '../protocol/messages.js';
 import {
   parseDirectCompletion,
   parseDirectModels,
@@ -347,7 +347,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
           submitStrategy: request['submitStrategy'] ?? 'click_button',
           submitKey: request['submitKey'] ?? 'Enter',
           stableMs: request['stableMs'] ?? 1500,
-          timeoutMs: request['timeoutMs'] ?? 60000,
+          timeoutMs: request['timeoutMs'] ?? DEFAULT_CAPTURE_TIMEOUT_MS,
           role: request['role'] ?? '',
         });
         sendResponse(result);

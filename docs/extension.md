@@ -287,9 +287,18 @@ an operator-supplied observation in evidence; it is never falsely labelled as a 
 capture. The pasted text is not stored in `chrome.storage`, and the selected sharing
 policy still applies before any text is sent to a provider.
 
-Manual response input is intentionally incompatible with `auto`: a run that waits for
-human copy/paste is not autonomous. Use `assist` or `guided`, or fix the page response
-binding before selecting Auto.
+Selecting manual response input up front is intentionally incompatible with `auto`: a
+run that waits for copy/paste is not autonomous. If an otherwise automatic page capture
+does not produce a stable reply within 15 seconds, however, the live Test workspace
+stops its countdown and offers **Check page again**, **Re-detect response**, and a
+one-turn **Use response & continue** fallback. Re-detection performs a new
+read-only DOM scan and opens Interaction for review. Checking again keeps the original
+post-send snapshot and never resends the payload. The run stays intact and pasted text
+is labelled as operator-provided evidence rather than browser capture.
+
+After a completed Assist or Guided turn, **Paste bot response** is also available beside
+**Generate payload**. Use it when the page capture was empty, incomplete, or clearly the
+wrong DOM text; the corrected observation is added without restarting the assessment.
 
 ### Verdicts
 
@@ -450,6 +459,10 @@ cannot be bound:
 - **canvas-only interfaces** — there are no elements to bind;
 - **heavily virtualized response lists** — rows are recycled, so a captured
   container may be reused for a later message.
+
+A response container that also contains the selected input or Send control is rejected.
+This commonly means a page-level `main` element was selected; pick one assistant reply
+instead, or use **Paste response** when the site exposes no stable reply element.
 
 These report as **Unsupported** rather than looping on revalidation, because
 re-detecting cannot fix them.

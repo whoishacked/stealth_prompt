@@ -164,6 +164,40 @@ test('Core FrameFuzz requires an advertised capability', () => {
   );
 });
 
+test('changing to an incompatible objective disables FrameFuzz atomically', () => {
+  let state = initialState();
+  state = reduce(state, {
+    type: 'settings',
+    patch: {
+      objective: 'indirect_prompt_injection',
+      frameFuzz: { ...state.settings.frameFuzz, enabled: true },
+    },
+  });
+
+  state = reduce(state, { type: 'settings', patch: { objective: 'custom' } });
+
+  assert.equal(state.settings.objective, 'custom');
+  assert.equal(state.settings.frameFuzz.enabled, false);
+});
+
+test('changing between compatible objectives keeps FrameFuzz enabled', () => {
+  let state = initialState();
+  state = reduce(state, {
+    type: 'settings',
+    patch: {
+      objective: 'indirect_prompt_injection',
+      frameFuzz: { ...state.settings.frameFuzz, enabled: true },
+    },
+  });
+
+  state = reduce(state, {
+    type: 'settings',
+    patch: { objective: 'sensitive_data_disclosure' },
+  });
+
+  assert.equal(state.settings.frameFuzz.enabled, true);
+});
+
 test('an incomplete FrameFuzz campaign restores only at the reset gate', () => {
   let state = initialState();
   state = reduce(state, {

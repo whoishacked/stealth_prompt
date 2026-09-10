@@ -807,7 +807,10 @@ class CoreServer:
         authorized by this frame.
         """
         session = self._require_session()
-        if session.mode is AssistMode.AUTO:
+        capture_fallback = payload.get("capture_fallback", False)
+        if not isinstance(capture_fallback, bool):
+            raise CoreError("field 'capture_fallback' must be a boolean")
+        if session.mode is AssistMode.AUTO and not capture_fallback:
             raise CoreError(
                 "manual response trigger is incompatible with auto mode",
                 code="invalid_configuration",
